@@ -6,9 +6,12 @@
  * restarts, and a missing counter keeps its previous value for the next sample that has it. A new
  * bootId clears everything: boot counters restart at boot.
  *
- * This module is pure: it does no I/O and never looks at a clock. The caller passes the raw sample and
- * the monotonic time of its answer; a network rate divides an interface's delta by the time since that
- * interface's own counters were stored, so a sample missing the interface keeps both until it returns.
+ * This module is pure: it does no I/O and never looks at a clock. The caller passes the raw sample, the
+ * monotonic time of its answer and the configured sample interval; a network rate divides an interface's
+ * delta by the time since that interface's own counters were stored, so a sample missing the interface
+ * keeps both until it returns. A counter younger than half the interval yields no rate or ratio and keeps
+ * its stored value, so a baseline followed within milliseconds by a slot sample cannot produce a spike:
+ * the next sample computes over the whole span (doc/design/metrics.md "Computation").
  */
 import {
 	isValidMetricsCoreIndex,
@@ -24,10 +27,12 @@ import type { MetricValue } from "./store.ts";
 /** How many consecutive samples a core or interface may be absent before its counters are forgotten. */
 export const METRICS_COUNTER_PRUNE_AFTER_SAMPLES = 10;
 
-/** One CPU line's jiffies; `busy` is total minus idle and iowait. */
+/** One CPU line's jiffies, as /proc/stat reports them, and when they were stored. */
 interface CPUCounter {
 	busy: bigint;
 	total: bigint;
+	/** The monotonic answer time of the sample that stored these counters, for this line's ratio span. */
+	atMs: number;
 	/** Consecutive samples that did not report this core; it is dropped at the limit. */
 	missingSamples?: number;
 }
@@ -71,9 +76,11 @@ export class MetricsComputer {
 	/**
 	 * Records one raw sample for a node and returns the values it produces. The sample must be the
 	 * decoded `metrics.collect` body or the parsed SSH script output; `answerMonotonicMs` is the
-	 * monotonic time its answer was received, used only for network rates.
+	 * monotonic time its answer was received, used for rate and ratio spans. `intervalMs` is the
+	 * configured sample interval: a counter younger than half of it yields no rate or ratio and keeps
+	 * its stored value, so the next sample computes over the whole span.
 	 */
-	sample(nodeId: string, raw: MetricsSnapshot, answerMonotonicMs: number): ComputedSample {
+	sample(nodeId: string, raw: MetricsSnapshot, answerMonotonicMs: number, intervalMs: number): ComputedSample {
 		let state = this.#nodes.get(nodeId);
 		if (state === undefined) {
 			state = { cores: new Map(), interfaces: new Map() };
@@ -94,9 +101,13 @@ export class MetricsComputer {
 		const pushGauge = (name: string, value: number): void => {
 			if (Number.isFinite(value)) values.push({ name, kind: "gauge", value });
 		};
+		// A rate or ratio must span a meaningful interval. Half the sample interval keeps normal
+		// sequences unchanged while a baseline followed immediately by a slot sample is withheld
+		// (doc/design/metrics.md "Computation").
+		const minSpanMs = intervalMs > 0 && Number.isFinite(intervalMs) ? intervalMs / 2 : 0;
 
 		if (raw.uptimeSec !== undefined) pushGauge("uptime", raw.uptimeSec);
-		computeCPU(state, raw, values);
+		computeCPU(state, raw, answerMonotonicMs, minSpanMs, values);
 		if (raw.loads !== undefined) {
 			pushGauge("load.1", raw.loads.l1 / 1000);
 			pushGauge("load.5", raw.loads.l5 / 1000);
@@ -125,7 +136,7 @@ export class MetricsComputer {
 				pushGauge(`disk.${disk.name}.used_bytes`, used);
 			}
 		}
-		computeNetwork(state, raw, answerMonotonicMs, values);
+		computeNetwork(state, raw, answerMonotonicMs, minSpanMs, values);
 
 		return { values, bootId: state.bootId, rebooted };
 	}
@@ -136,37 +147,77 @@ export class MetricsComputer {
 	}
 }
 
-function computeCPU(state: NodeCounters, raw: MetricsSnapshot, values: MetricValue[]): void {
+function computeCPU(
+	state: NodeCounters,
+	raw: MetricsSnapshot,
+	answerMonotonicMs: number,
+	minSpanMs: number,
+	values: MetricValue[],
+): void {
 	const cpu = raw.cpu;
 	if (cpu === undefined) return;
 	const previous = state.cpu;
-	if (previous !== undefined && cpu.total.total >= previous.total && cpu.total.busy >= previous.busy) {
+	if (previous === undefined) {
+		state.cpu = { busy: cpu.total.busy, total: cpu.total.total, atMs: answerMonotonicMs };
+	} else if (cpu.total.total < previous.total || cpu.total.busy < previous.busy) {
+		// A line that fell is a restart: it starts again at this value, exactly as before.
+		state.cpu = { busy: cpu.total.busy, total: cpu.total.total, atMs: answerMonotonicMs };
+	} else if (!(minSpanMs > 0 && answerMonotonicMs - previous.atMs < minSpanMs)) {
 		const deltaTotal = cpu.total.total - previous.total;
 		const deltaBusy = cpu.total.busy - previous.busy;
-		// A line that did not advance has no ratio; a line that fell is a restart and has none either.
+		// A line that did not advance has no ratio.
 		if (deltaTotal > 0n) {
 			const value = ratio(deltaBusy, deltaTotal);
 			if (Number.isFinite(value)) values.push({ name: "cpu.total", kind: "gauge", value });
 		}
+		state.cpu = { busy: cpu.total.busy, total: cpu.total.total, atMs: answerMonotonicMs };
 	}
-	state.cpu = { busy: cpu.total.busy, total: cpu.total.total };
+	// The else branch keeps the previous counters and their time: the sample arrived before half an
+	// interval passed, so the next one computes the ratio over the whole span.
 
 	const present = new Set<number>();
 	for (const core of cpu.cores.slice(0, MAX_METRICS_CORES)) {
 		if (!isValidMetricsCoreIndex(core.index)) continue;
 		present.add(core.index);
 		const old = state.cores.get(core.index);
-		if (old !== undefined && core.total >= old.total && core.busy >= old.busy) {
-			const deltaTotal = core.total - old.total;
-			const deltaBusy = core.busy - old.busy;
-			if (deltaTotal > 0n) {
-				const value = ratio(deltaBusy, deltaTotal);
-				if (Number.isFinite(value)) {
-					values.push({ name: `cpu.core.${core.index}`, kind: "gauge", value });
-				}
+		if (old === undefined) {
+			state.cores.set(core.index, {
+				busy: core.busy,
+				total: core.total,
+				atMs: answerMonotonicMs,
+				missingSamples: 0,
+			});
+			continue;
+		}
+		if (core.total < old.total || core.busy < old.busy) {
+			// A core that fell restarted: its new value is the start, with no ratio.
+			state.cores.set(core.index, {
+				busy: core.busy,
+				total: core.total,
+				atMs: answerMonotonicMs,
+				missingSamples: 0,
+			});
+			continue;
+		}
+		if (minSpanMs > 0 && answerMonotonicMs - old.atMs < minSpanMs) {
+			// Too soon for a ratio: keep this core's counters and their time for the next sample.
+			old.missingSamples = 0;
+			continue;
+		}
+		const deltaTotal = core.total - old.total;
+		const deltaBusy = core.busy - old.busy;
+		if (deltaTotal > 0n) {
+			const value = ratio(deltaBusy, deltaTotal);
+			if (Number.isFinite(value)) {
+				values.push({ name: `cpu.core.${core.index}`, kind: "gauge", value });
 			}
 		}
-		state.cores.set(core.index, { busy: core.busy, total: core.total, missingSamples: 0 });
+		state.cores.set(core.index, {
+			busy: core.busy,
+			total: core.total,
+			atMs: answerMonotonicMs,
+			missingSamples: 0,
+		});
 	}
 	// A core that stays offline would otherwise keep its counters in memory forever, and a node whose core
 	// count changes could grow the map sample after sample (doc/design/metrics.md "Computation").
@@ -181,6 +232,7 @@ function computeNetwork(
 	state: NodeCounters,
 	raw: MetricsSnapshot,
 	answerMonotonicMs: number,
+	minSpanMs: number,
 	values: MetricValue[],
 ): void {
 	const interfaces = raw.interfaces;
@@ -203,29 +255,55 @@ function computeNetwork(
 		if (!isValidMetricsInterfaceName(iface.name)) continue;
 		present.add(iface.name);
 		const old = state.interfaces.get(iface.name);
+		if (old === undefined) {
+			state.interfaces.set(iface.name, {
+				rxBytes: iface.rxBytes,
+				txBytes: iface.txBytes,
+				rxPackets: iface.rxPackets,
+				txPackets: iface.txPackets,
+				atMs: answerMonotonicMs,
+				missingSamples: 0,
+			});
+			continue;
+		}
 		if (
-			old !== undefined &&
-			iface.rxBytes >= old.rxBytes &&
-			iface.txBytes >= old.txBytes &&
-			iface.rxPackets >= old.rxPackets &&
-			iface.txPackets >= old.txPackets
+			iface.rxBytes < old.rxBytes ||
+			iface.txBytes < old.txBytes ||
+			iface.rxPackets < old.rxPackets ||
+			iface.txPackets < old.txPackets
 		) {
-			const deltaRx = iface.rxBytes - old.rxBytes;
-			const deltaTx = iface.txBytes - old.txBytes;
-			rxBytes += deltaRx;
-			txBytes += deltaTx;
-			rxPackets += iface.rxPackets - old.rxPackets;
-			txPackets += iface.txPackets - old.txPackets;
-			deltas = true;
-			// Rates divide by the time between the two answers on crhs's monotonic clock; a clock that
-			// did not move (or moved backwards) gives no rate rather than a division by zero or a
-			// negative one, though the interface's delta still counts.
-			const seconds = (answerMonotonicMs - old.atMs) / 1000;
-			if (seconds > 0 && Number.isFinite(seconds)) {
-				rxRate += Number(deltaRx) / seconds;
-				txRate += Number(deltaTx) / seconds;
-				rates = true;
-			}
+			// A counter that went backwards is a restart: only its new start is recorded, with no delta.
+			state.interfaces.set(iface.name, {
+				rxBytes: iface.rxBytes,
+				txBytes: iface.txBytes,
+				rxPackets: iface.rxPackets,
+				txPackets: iface.txPackets,
+				atMs: answerMonotonicMs,
+				missingSamples: 0,
+			});
+			continue;
+		}
+		if (minSpanMs > 0 && answerMonotonicMs - old.atMs < minSpanMs) {
+			// Too soon for a rate. The interface's delta is withheld with it, because its counters and
+			// their time are kept: the next sample's delta covers both spans and no traffic is lost.
+			old.missingSamples = 0;
+			continue;
+		}
+		const deltaRx = iface.rxBytes - old.rxBytes;
+		const deltaTx = iface.txBytes - old.txBytes;
+		rxBytes += deltaRx;
+		txBytes += deltaTx;
+		rxPackets += iface.rxPackets - old.rxPackets;
+		txPackets += iface.txPackets - old.txPackets;
+		deltas = true;
+		// Rates divide by the time between the two answers on crhs's monotonic clock; a clock that
+		// did not move (or moved backwards) gives no rate rather than a division by zero or a
+		// negative one, though the interface's delta still counts.
+		const seconds = (answerMonotonicMs - old.atMs) / 1000;
+		if (seconds > 0 && Number.isFinite(seconds)) {
+			rxRate += Number(deltaRx) / seconds;
+			txRate += Number(deltaTx) / seconds;
+			rates = true;
 		}
 		state.interfaces.set(iface.name, {
 			rxBytes: iface.rxBytes,

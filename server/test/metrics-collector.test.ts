@@ -280,6 +280,47 @@ describe("metrics collector", () => {
 		expect(latest?.values.find((value) => value.name === "up")?.value).toBe(1);
 	});
 
+	it("withholds rates and ratios for a slot sample taken right after a baseline", async () => {
+		const key = generateKeyPair();
+		const node = await addNode(harness.db, "client", key.publicKey);
+		const answer = crhaAnswer();
+		// The baseline, the slot sample 6 ms later, and the next slot's sample a full second on.
+		const monos = [1_000, 1_006, 2_000];
+		let nextMono = 0;
+		await harness.collector.stop();
+		harness.collector = new MetricsCollector({
+			db: harness.db,
+			store: harness.store,
+			settings: harness.settings,
+			host: harness.cluster.metricsHost(),
+			now: () => harness.clock.now,
+			monotonic: () => monos[Math.min(nextMono++, monos.length - 1)] ?? 2_000,
+			timer: false,
+		});
+		await harness.collector.start();
+		await connect(harness.agents, harness.cluster, node, key, { metrics: true, answer: answer.answer });
+		await waitFor("baseline", () => answer.calls() >= 1);
+
+		// The slot sample answers 6 ms after the baseline: a rate would divide by 0.006 s.
+		await harness.collector.tick();
+		await harness.collector.settle();
+		const [early] = recordsFor(harness.store, node.id, SLOT);
+		expect(recordValue(early, "up")).toBe(1);
+		expect(recordValue(early, "net.rx_bytes")).toBeUndefined();
+		expect(recordValue(early, "net.rx_bytes_per_sec")).toBeUndefined();
+		expect(recordValue(early, "cpu.total")).toBeUndefined();
+
+		// The next slot computes from the baseline over the whole second: 2,000 bytes and 100 of
+		// 400 jiffies since it.
+		harness.clock.now = nowWithinSlot(SLOT + INTERVAL);
+		await harness.collector.tick();
+		await harness.collector.settle();
+		const [full] = recordsFor(harness.store, node.id, SLOT + INTERVAL);
+		expect(recordValue(full, "net.rx_bytes")).toBe(2_000);
+		expect(recordValue(full, "net.rx_bytes_per_sec")).toBe(2_000);
+		expect(recordValue(full, "cpu.total")).toBeCloseTo(0.25);
+	});
+
 	it("keeps a slow answer within its own slot", async () => {
 		const key = generateKeyPair();
 		const node = await addNode(harness.db, "client", key.publicKey);

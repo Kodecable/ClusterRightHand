@@ -742,7 +742,7 @@ export class MetricsCollector {
 						return;
 					}
 					if (state.baselineIgnoredGeneration === generation) return;
-					this.#computer.sample(state.node.id, raw, this.#monotonic());
+					this.#computer.sample(state.node.id, raw, this.#monotonic(), this.#intervalMs());
 					this.#recovered(state);
 					return;
 				}
@@ -758,7 +758,7 @@ export class MetricsCollector {
 				if (state.baselineIgnoredGeneration === generation) return;
 				// A replacement connection may have taken over while the answer was in flight.
 				if (this.#host.link(state.node.id)?.peer !== link.peer) return;
-				const result = this.#computer.sample(state.node.id, raw, this.#monotonic());
+				const result = this.#computer.sample(state.node.id, raw, this.#monotonic(), this.#intervalMs());
 				this.#observeBoot(state, result, metricsSlotStart(this.#now(), this.#intervalMs()));
 				this.#recovered(state);
 			} catch (err) {
@@ -801,7 +801,7 @@ export class MetricsCollector {
 		// A baseline still in flight has older counters than this sample; letting it land later would
 		// move the previous values backwards and inflate the next delta.
 		state.baselineIgnoredGeneration = state.generation;
-		const result = this.#computer.sample(state.node.id, raw, this.#monotonic());
+		const result = this.#computer.sample(state.node.id, raw, this.#monotonic(), this.#intervalMs());
 		this.#observeBoot(state, result, slotStart);
 		// Keep the report order of the latest successful sample: a filesystem can disappear between
 		// samples, and the WebUI's first-filesystem card needs the order the node last reported.

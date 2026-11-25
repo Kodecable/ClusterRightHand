@@ -171,6 +171,13 @@ value:
   does not make the total fall. Each interface's rate is its delta divided by the time since its own
   previous counters on crhs's monotonic clock, so a sample that missed it does not double its rate; the
   node's rates are the sum.
+- **A rate or ratio spans a meaningful interval.** When the time since a counter's stored value is less
+  than half the configured sample interval, that sample emits no rate or ratio for it and keeps the
+  stored value and time, so the next sample computes over the whole span. For an interface the delta is
+  withheld with its rate, because its counters are kept too: the next sample's delta covers both spans,
+  so the traffic totals stay exact. This is what keeps the baseline taken at crhs start or on a crha
+  connect ([Collection](#collection)), followed within milliseconds by a slot sample, from drawing a
+  false spike. A bootId change clears everything and a counter that went backwards restarts, as above.
 
 The previous values live in memory. The baseline sample ([Collection](#collection)) restores them after
 a crhs restart or a node reboot, before the node's next slot; only an SSH node whose baseline fails loses

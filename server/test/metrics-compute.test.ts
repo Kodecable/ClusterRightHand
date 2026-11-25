@@ -6,9 +6,16 @@ import type { MetricValue } from "../src/metrics/store.ts";
 /**
  * The computation rules of doc/design/metrics.md "Computation": counters are kept per node and per
  * counter identity, new counters only record their start, backwards counters restart, missing counters
- * keep their previous value, a new bootId clears everything, and bigint counters are subtracted before
- * they become numbers.
+ * keep their previous value, a new bootId clears everything, bigint counters are subtracted before
+ * they become numbers, and a counter younger than half the sample interval yields no rate or ratio.
  */
+
+const INTERVAL_MS = 1_000;
+
+/** Samples with the normal interval, so every counter's span is measured against a known interval. */
+function sampleAt(computer: MetricsComputer, nodeId: string, raw: MetricsSnapshot, atMs: number) {
+	return computer.sample(nodeId, raw, atMs, INTERVAL_MS);
+}
 
 function metricValue(values: readonly MetricValue[], name: string): MetricValue | undefined {
 	return values.find((value) => value.name === name);
@@ -58,7 +65,7 @@ const BASE: MetricsSnapshot = {
 describe("metrics computation", () => {
 	it("records every gauge of the first sample and no counter delta or rate", () => {
 		const computer = new MetricsComputer();
-		const result = computer.sample("node", BASE, 1_000);
+		const result = sampleAt(computer, "node", BASE, 1_000);
 		expect(result.rebooted).toBe(false);
 		expect(result.bootId).toBe("boot-a");
 		expectValue(result.values, "uptime", 120);
@@ -81,8 +88,9 @@ describe("metrics computation", () => {
 
 	it("computes CPU ratios, network deltas and rates from the two answers", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", BASE, 1_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -106,23 +114,164 @@ describe("metrics computation", () => {
 		expectValue(result.values, "net.tx_bytes_per_sec", 1_000);
 	});
 
-	it("does not divide by a monotonic clock that did not advance", () => {
+	it("withholds a rate and its delta when the monotonic clock did not advance", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", BASE, 1_000);
+		const same = sampleAt(
+			computer,
 			"node",
 			sample({ ...BASE, interfaces: [interfaceCounters("eth0", 12_000n, 22_000n, 110n, 220n)] }),
 			1_000,
 		);
-		// The deltas are still known; only the rate would divide by zero.
-		expectValue(result.values, "net.rx_bytes", 2_000, "delta");
-		expect(metricValue(result.values, "net.rx_bytes_per_sec")).toBeUndefined();
+		// Zero time is below the minimum span: no rate, and no delta either, because the counters and
+		// their time are kept for the next sample.
+		expect(metricValue(same.values, "net.rx_bytes")).toBeUndefined();
+		expect(metricValue(same.values, "net.rx_bytes_per_sec")).toBeUndefined();
+		const next = sampleAt(
+			computer,
+			"node",
+			sample({ ...BASE, interfaces: [interfaceCounters("eth0", 13_000n, 22_000n, 110n, 220n)] }),
+			2_000,
+		);
+		// The withheld 2,000 bytes and the new 1,000 are one delta over the second since the baseline.
+		expectValue(next.values, "net.rx_bytes", 3_000, "delta");
+		expectValue(next.values, "net.rx_bytes_per_sec", 3_000);
+	});
+
+	it("withholds rates and ratios until half the sample interval has passed", () => {
+		const computer = new MetricsComputer();
+		sampleAt(computer, "node", BASE, 1_000);
+		// 6 ms after the baseline: a rate here would divide 959 bytes by 0.006 s.
+		const early = sampleAt(
+			computer,
+			"node",
+			sample({
+				...BASE,
+				uptimeSec: 121,
+				cpu: cpu(150n, 400n, [
+					[0, 75n, 200n],
+					[1, 75n, 200n],
+				]),
+				interfaces: [interfaceCounters("eth0", 10_959n, 20_000n, 110n, 200n)],
+			}),
+			1_006,
+		);
+		expect(metricValue(early.values, "cpu.total")).toBeUndefined();
+		expect(metricValue(early.values, "cpu.core.0")).toBeUndefined();
+		expect(metricValue(early.values, "net.rx_bytes")).toBeUndefined();
+		expect(metricValue(early.values, "net.rx_bytes_per_sec")).toBeUndefined();
+		expect(metricValue(early.values, "net.tx_bytes_per_sec")).toBeUndefined();
+
+		const full = sampleAt(
+			computer,
+			"node",
+			sample({
+				...BASE,
+				uptimeSec: 122,
+				cpu: cpu(250n, 800n, [
+					[0, 125n, 400n],
+					[1, 125n, 400n],
+				]),
+				interfaces: [interfaceCounters("eth0", 12_000n, 22_000n, 120n, 220n)],
+			}),
+			2_000,
+		);
+		// The full-interval sample covers the whole span from the baseline: 2,000 bytes in 1 s, and
+		// 150 busy of 600 total jiffies.
+		expectValue(full.values, "net.rx_bytes", 2_000, "delta");
+		expectValue(full.values, "net.tx_bytes", 2_000, "delta");
+		expectValue(full.values, "net.rx_packets", 20, "delta");
+		expectValue(full.values, "net.tx_packets", 20, "delta");
+		expectValue(full.values, "net.rx_bytes_per_sec", 2_000);
+		expectValue(full.values, "net.tx_bytes_per_sec", 2_000);
+		expectValue(full.values, "cpu.total", 0.25);
+		expectValue(full.values, "cpu.core.0", 0.25);
+	});
+
+	it("does not lose or double-count traffic across a withheld delta", () => {
+		const computer = new MetricsComputer();
+		const rxs = [10_000n, 10_959n, 11_000n, 12_000n];
+		const times = [1_000, 1_006, 1_010, 2_000];
+		const results = rxs.map((rx, index) =>
+			sampleAt(
+				computer,
+				"node",
+				sample({ ...BASE, interfaces: [interfaceCounters("eth0", rx, 20_000n, 100n, 200n)] }),
+				times[index] as number,
+			),
+		);
+		// Both skipped samples withheld their deltas with their rates...
+		expect(metricValue(results[1]?.values ?? [], "net.rx_bytes")).toBeUndefined();
+		expect(metricValue(results[2]?.values ?? [], "net.rx_bytes")).toBeUndefined();
+		// ...so the only emitted delta is the exact counter difference since the baseline.
+		const summed = results.reduce(
+			(total, result) => total + (metricValue(result.values, "net.rx_bytes")?.value ?? 0),
+			0,
+		);
+		expect(summed).toBe(Number((rxs[3] as bigint) - (rxs[0] as bigint)));
+		expect(metricValue(results[3]?.values ?? [], "net.rx_bytes")?.value).toBe(2_000);
+	});
+
+	it("computes a CPU ratio over the whole span after a withheld ratio", () => {
+		const computer = new MetricsComputer();
+		sampleAt(computer, "node", BASE, 1_000);
+		const early = sampleAt(computer, "node", sample({ ...BASE, cpu: cpu(105n, 210n, [[0, 55n, 110n]]) }), 1_006);
+		// The early ratio would have been 5/10 = 0.5, from a handful of jiffies.
+		expect(metricValue(early.values, "cpu.total")).toBeUndefined();
+		expect(metricValue(early.values, "cpu.core.0")).toBeUndefined();
+		const full = sampleAt(computer, "node", sample({ ...BASE, cpu: cpu(250n, 800n, [[0, 125n, 400n]]) }), 2_000);
+		// 150 busy of 600 total jiffies since the baseline, not 145 of 590 since the skipped sample.
+		expectValue(full.values, "cpu.total", 0.25);
+		expectValue(full.values, "cpu.core.0", 0.25);
+	});
+
+	it("keeps each interface's span independent when one appears late", () => {
+		const computer = new MetricsComputer();
+		sampleAt(
+			computer,
+			"node",
+			sample({ bootId: "b", interfaces: [interfaceCounters("eth0", 1_000n, 2_000n, 10n, 20n)] }),
+			0,
+		);
+		const early = sampleAt(
+			computer,
+			"node",
+			sample({
+				bootId: "b",
+				interfaces: [
+					interfaceCounters("eth0", 2_000n, 3_000n, 20n, 30n),
+					interfaceCounters("eth1", 500n, 600n, 5n, 6n),
+				],
+			}),
+			6,
+		);
+		// eth0's span is too short; eth1 only records its start. Neither produces a value.
+		expect(metricValue(early.values, "net.rx_bytes")).toBeUndefined();
+		expect(metricValue(early.values, "net.rx_bytes_per_sec")).toBeUndefined();
+
+		const full = sampleAt(
+			computer,
+			"node",
+			sample({
+				bootId: "b",
+				interfaces: [
+					interfaceCounters("eth0", 3_000n, 5_000n, 30n, 50n),
+					interfaceCounters("eth1", 1_500n, 1_600n, 15n, 16n),
+				],
+			}),
+			1_000,
+		);
+		// eth0: 2,000 B since t=0 over 1 s, unaffected by eth1 appearing at t=6 ms.
+		// eth1: 1,000 B since its own counters at t=6 ms, over 0.994 s.
+		expectValue(full.values, "net.rx_bytes", 3_000, "delta");
+		expectValue(full.values, "net.rx_bytes_per_sec", 2_000 + 1_000 / 0.994);
 	});
 
 	it("records only the start of a new core and a new interface", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", BASE, 1_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -147,8 +296,9 @@ describe("metrics computation", () => {
 
 	it("does not produce network values when every interface is new", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", sample({ bootId: "b", interfaces: [] }), 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", sample({ bootId: "b", interfaces: [] }), 1_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({ bootId: "b", interfaces: [interfaceCounters("eth0", 999n, 999n, 9n, 9n)] }),
 			2_000,
@@ -159,7 +309,7 @@ describe("metrics computation", () => {
 
 	it("restarts a counter that went backwards without a negative delta", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
+		sampleAt(computer, "node", BASE, 1_000);
 		const first = sample({
 			...BASE,
 			interfaces: [
@@ -167,8 +317,9 @@ describe("metrics computation", () => {
 				interfaceCounters("eth1", 100n, 100n, 10n, 10n),
 			],
 		});
-		computer.sample("node", first, 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", first, 1_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -192,10 +343,11 @@ describe("metrics computation", () => {
 
 	it("keeps a missing counter's previous value for the next sample that has it", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
+		sampleAt(computer, "node", BASE, 1_000);
 		// No cpu and no interfaces: their previous values stay.
-		computer.sample("node", sample({ bootId: "boot-a", uptimeSec: 121 }), 2_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", sample({ bootId: "boot-a", uptimeSec: 121 }), 2_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -215,14 +367,16 @@ describe("metrics computation", () => {
 
 	it("divides a rate by the whole gap when a sample has no interfaces field", () => {
 		const computer = new MetricsComputer();
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({ bootId: "b", interfaces: [interfaceCounters("eth0", 10_000n, 20_000n, 100n, 200n)] }),
 			0,
 		);
 		// The interfaces field is absent: eth0's counters and their time stay for the next sample.
-		computer.sample("node", sample({ bootId: "b", uptimeSec: 60 }), 60_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", sample({ bootId: "b", uptimeSec: 60 }), 60_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -240,7 +394,8 @@ describe("metrics computation", () => {
 
 	it("sums each interface's rate over the time since its own counters", () => {
 		const computer = new MetricsComputer();
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -249,12 +404,14 @@ describe("metrics computation", () => {
 			0,
 		);
 		// eth1 is missing: eth0 advances and updates its time, eth1 keeps its counters and their time.
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({ bootId: "b", interfaces: [interfaceCounters("eth0", 6_000n, 12_000n, 60n, 120n)] }),
 			60_000,
 		);
-		const result = computer.sample(
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -275,8 +432,9 @@ describe("metrics computation", () => {
 
 	it("clears every previous value on a new bootId", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
-		const rebooted = computer.sample(
+		sampleAt(computer, "node", BASE, 1_000);
+		const rebooted = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "boot-b",
@@ -291,7 +449,8 @@ describe("metrics computation", () => {
 		expect(metricValue(rebooted.values, "cpu.core.0")).toBeUndefined();
 		expect(metricValue(rebooted.values, "net.rx_bytes")).toBeUndefined();
 		// The new boot's counters are the start for the next sample.
-		const next = computer.sample(
+		const next = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "boot-b",
@@ -306,16 +465,17 @@ describe("metrics computation", () => {
 
 	it("omits cpu.total when the line did not advance or went backwards", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", sample({ bootId: "b", cpu: cpu(100n, 200n) }), 1_000);
-		const unchanged = computer.sample("node", sample({ bootId: "b", cpu: cpu(100n, 200n) }), 2_000);
+		sampleAt(computer, "node", sample({ bootId: "b", cpu: cpu(100n, 200n) }), 1_000);
+		const unchanged = sampleAt(computer, "node", sample({ bootId: "b", cpu: cpu(100n, 200n) }), 2_000);
 		expect(metricValue(unchanged.values, "cpu.total")).toBeUndefined();
-		const backwards = computer.sample("node", sample({ bootId: "b", cpu: cpu(90n, 190n) }), 3_000);
+		const backwards = sampleAt(computer, "node", sample({ bootId: "b", cpu: cpu(90n, 190n) }), 3_000);
 		expect(metricValue(backwards.values, "cpu.total")).toBeUndefined();
 	});
 
 	it("sums each interface's own delta after a reset", () => {
 		const computer = new MetricsComputer();
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -323,7 +483,8 @@ describe("metrics computation", () => {
 			}),
 			1_000,
 		);
-		const result = computer.sample(
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -343,13 +504,14 @@ describe("metrics computation", () => {
 
 	it("produces no values for a sample with no fields", () => {
 		const computer = new MetricsComputer();
-		expect(computer.sample("node", {}, 1_000).values).toEqual([]);
+		expect(sampleAt(computer, "node", {}, 1_000).values).toEqual([]);
 	});
 
 	it("subtracts bigint counters exactly above 2^53", () => {
 		const computer = new MetricsComputer();
 		const big = 2n ** 53n + 1n;
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -358,7 +520,8 @@ describe("metrics computation", () => {
 			}),
 			1_000,
 		);
-		const result = computer.sample(
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -387,8 +550,9 @@ describe("metrics computation", () => {
 			usedBytes: 0n,
 		}));
 		const interfaces = Array.from({ length: 257 }, (_, i) => interfaceCounters(`i${i}`, 1n, 1n, 1n, 1n));
-		computer.sample("node", sample({ bootId: "b", cpu: cpu(1n, 1n, cores), disks, interfaces }), 1_000);
-		const result = computer.sample(
+		sampleAt(computer, "node", sample({ bootId: "b", cpu: cpu(1n, 1n, cores), disks, interfaces }), 1_000);
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				bootId: "b",
@@ -426,21 +590,21 @@ describe("metrics computation", () => {
 
 		// One sample short of the limit: the previous counters are still there, so a delta is computed.
 		const kept = new MetricsComputer();
-		kept.sample("node", BASE, 1_000);
+		sampleAt(kept, "node", BASE, 1_000);
 		for (let index = 1; index < 10; index++) {
-			kept.sample("node", absent, 1_000 + index * 1_000);
+			sampleAt(kept, "node", absent, 1_000 + index * 1_000);
 		}
-		const stillThere = kept.sample("node", returning, 20_000);
+		const stillThere = sampleAt(kept, "node", returning, 20_000);
 		expectValue(stillThere.values, "cpu.core.0", 0.25);
 		expectValue(stillThere.values, "net.rx_bytes", 1_000, "delta");
 
 		// At the limit the state is gone: the same sample only records the counters' starting values.
 		const pruned = new MetricsComputer();
-		pruned.sample("node", BASE, 1_000);
+		sampleAt(pruned, "node", BASE, 1_000);
 		for (let index = 0; index < 10; index++) {
-			pruned.sample("node", absent, 1_000 + index * 1_000);
+			sampleAt(pruned, "node", absent, 1_000 + index * 1_000);
 		}
-		const fresh = pruned.sample("node", returning, 20_000);
+		const fresh = sampleAt(pruned, "node", returning, 20_000);
 		expect(metricValue(fresh.values, "cpu.core.0")).toBeUndefined();
 		expect(metricValue(fresh.values, "net.rx_bytes")).toBeUndefined();
 	});
@@ -449,12 +613,14 @@ describe("metrics computation", () => {
 		const computer = new MetricsComputer();
 		// Names Linux allows that the old `[A-Za-z0-9_.:@-]` form dropped: `+`, `#`, `~` and non-ASCII.
 		const names = ["wg+0", "网卡0", "eth0#1", "a~b"];
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({ ...BASE, interfaces: names.map((name) => interfaceCounters(name, 0n, 0n, 0n, 0n)) }),
 			1_000,
 		);
-		const result = computer.sample(
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({ ...BASE, interfaces: names.map((name) => interfaceCounters(name, 100n, 200n, 1n, 2n)) }),
 			2_000,
@@ -470,7 +636,8 @@ describe("metrics computation", () => {
 
 	it("drops a raw sample's out-of-form disk, interface and core names", () => {
 		const computer = new MetricsComputer();
-		computer.sample(
+		sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -486,7 +653,8 @@ describe("metrics computation", () => {
 			}),
 			1_000,
 		);
-		const result = computer.sample(
+		const result = sampleAt(
+			computer,
 			"node",
 			sample({
 				...BASE,
@@ -513,9 +681,9 @@ describe("metrics computation", () => {
 
 	it("forgets a node when asked", () => {
 		const computer = new MetricsComputer();
-		computer.sample("node", BASE, 1_000);
+		sampleAt(computer, "node", BASE, 1_000);
 		computer.forget("node");
-		const result = computer.sample("node", sample({ ...BASE, uptimeSec: 1 }), 2_000);
+		const result = sampleAt(computer, "node", sample({ ...BASE, uptimeSec: 1 }), 2_000);
 		expect(metricValue(result.values, "cpu.total")).toBeUndefined();
 		expect(metricValue(result.values, "net.rx_bytes")).toBeUndefined();
 	});
