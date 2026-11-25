@@ -9,26 +9,32 @@ privilege authorization and auditing.
 
 ## Highlights
 
-- **Agent sessions across your nodes.** Run commands and file operations on one node, a node group or
-  all of them at once, with subagents, per-session token quotas and scheduled sessions.
-- **Privilege is decided on the node.** A node can require privileged tasks to carry an authorization
-  it trusts: signed with a user's SSH key or Passkey and countersigned by the central server, or
-  approved locally on the node. A node can refuse to let crhs elevate alone, so even a compromised
-  central server cannot become root on it.
-- **Two ways to reach a node.** Install the small `crha` agent, which dials out to crhs, or use plain
-  SSH with nothing installed, through jump hosts if needed.
-- **It can operate CRH itself.** A session reads the documentation of the running version and makes
-  crhs API requests as its owner, under the same rules and approvals: ask it to create a node group,
-  review recent tasks or set up a schedule, and it works out how. It can also use tools from MCP servers
-  you connect as extensions.
-- **An MCP server too.** Plug it into your existing workflow: Claude Code, Codex and other MCP clients
-  connect over MCP and get the same tools, under the same rules and approvals.
-- **Simple to run.** One Node.js process serves the WebUI, MCP, the agents and the scheduler,
-  on SQLite or PostgreSQL. The WebUI is in English and Chinese.
+**Core**
 
-| Signing                                                                                                    | Node trust                                                                                        |
+- **A native multi-node agent runtime.** Nodes and node groups are direct arguments of the agent's tools:
+  one call runs a command or a file operation on a whole group and returns the result per node.
+- **Rules, approvals and audit.** Every task an agent starts is first allowed, denied or held for approval
+  by the rules, and every task is recorded in the audit log.
+- **Privilege is decided on the node.** A node can require a privileged task to carry a user's SSH key or
+  Passkey signature, or a local approval; when the node is configured well, a compromised central server
+  cannot become root on it alone.
+- **Two ways to reach a node.** Install the `crha` client, which dials out, or connect over SSH with no
+  CRH component on the node.
+- **Manages CRH itself and serves as an MCP server.** The agent can call the crhs API by its documentation;
+  Claude Code, Codex and other MCP clients can use the same cluster tools under the same rules.
+
+**Additional features**
+
+- **Interactive terminals.** Open a terminal on a crha node in the WebUI; people and agents can share it.
+- **Host metrics.** crhs collects CPU, memory, disk and network metrics from the nodes, with no separate
+  monitoring agent.
+- **Chat channels.** Use sessions and answer approvals from a chat app through Telegram or Satori.
+- **Scheduled tasks.** Start a session with a preset prompt on a cron schedule.
+- **Simple to deploy.** One Node.js process with SQLite or PostgreSQL.
+
+| Node metrics                                                                                               | Node trust                                                                                        |
 | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| ![A session waiting for a signature before a privileged command runs on db-1](doc/images/signature.en.png) | ![db-1 trusts only the admin's SSH key and Passkey, and local root](doc/images/node-trust.en.png) |
+| ![db-1's metrics: CPU, load, memory, disks and network over the last hour](doc/images/node-metrics.en.png) | ![db-1 trusts only the admin's SSH key and Passkey, and local root](doc/images/node-trust.en.png) |
 
 ## How it works
 

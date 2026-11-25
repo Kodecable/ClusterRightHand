@@ -71,6 +71,7 @@ writeFileSync(`${D}/crhs/crhs.toml`, toml);
 sh("sqlite3", [
 	`${D}/crhs/crhs.db`,
 	`insert into settings (org_id, key, value, updated_at) select id, 'auth.captcha', '"none"', '${new Date().toISOString()}' from orgs`,
+	`insert into settings (org_id, key, value, updated_at) select id, 'metrics.interval', '15', '${new Date().toISOString()}' from orgs`,
 ]);
 sh("podman", [
 	"run",
@@ -166,6 +167,7 @@ const crhsKey = (await api("/api/privilege/crhs-key")).key.authorizedKey;
 	await api("/api/me/signing-credentials/ssh", { signature, name: "admin-signing" });
 }
 
+const metricsNodeIds = [];
 const nodes = [
 	{
 		name: "web-1",
@@ -257,6 +259,7 @@ for (const n of nodes) {
 	const id = /enrolled as node ([^\s,]+)/.exec(out)?.[1];
 	if (!id) throw new Error(`enroll ${n.name}: ${out}`);
 	n.id = id;
+	metricsNodeIds.push(id);
 	await waitFor(`${n.name} pending`, async () => (await api("/api/nodes")).nodes.find((x) => x.id === id));
 	await api(`/api/nodes/${id}/approve`, {});
 	await api(`/api/nodes/${id}/node-groups`, { nodeGroups: n.groups }, "PUT");
@@ -309,8 +312,72 @@ for (const n of nodes) {
 	const hostFingerprint = await waitFor("sshd", async () => (await api("/api/ssh-nodes/probe", target)).fingerprint);
 	const { node } = await api("/api/ssh-nodes", { name: "ssh-1", ...target, hostFingerprint });
 	await api(`/api/nodes/${node.id}/node-groups`, { nodeGroups: ["ssh"] }, "PUT");
+	metricsNodeIds.push(node.id);
 	console.log(`ssh-1: ${node.id}`);
 }
+
+// The charts show an hour: wait until every node has two real samples and at least one real network rate,
+// then seed the synthetic history older than the first real slot and restart crhs, so real collection
+// continues on the right of it. The network series only appear with the second full sample (the first one
+// has no previous counters), and the seed can only synthesize the series the node already has.
+for (const id of metricsNodeIds) {
+	await waitFor(`two real metrics samples and a network rate for ${id}`, async () => {
+		const row = sh("sqlite3", [
+			`${D}/crhs/crhs.db`,
+			`select (select coalesce(sum(b.count), 0) from metric_buckets b join metric_series s on s.id = b.series_id where s.node_id = '${id}' and s.name = 'up' and b.level = 1), (select count(*) from metric_buckets b join metric_series s on s.id = b.series_id where s.node_id = '${id}' and s.name = 'net.rx_bytes_per_sec' and b.level = 1)`,
+		])
+			.trim()
+			.split("|")
+			.map(Number);
+		return (row[0] ?? 0) >= 2 && (row[1] ?? 0) >= 1;
+	});
+}
+console.log(`seeding synthetic metrics history for ${metricsNodeIds.length} nodes`);
+sh("podman", ["stop", "-t", "30", `${P}-crhs`]);
+sh(
+	"podman",
+	[
+		"run",
+		"--rm",
+		"--network",
+		"none",
+		"-v",
+		`${REPO}:/repo:ro`,
+		"-v",
+		`${D}/crhs:/data`,
+		"-w",
+		"/repo/server",
+		NODE_IMAGE,
+		"node",
+		"/repo/scripts/readme-shots/seed-metrics.ts",
+		"/data/crhs.db",
+	],
+	{ stdio: "inherit" },
+);
+sh("podman", ["start", `${P}-crhs`]);
+await waitFor("crhs after seeding", async () => (await fetch(`${URL_}/api/health`)).ok);
+
+// A restart starts the collector's counters from scratch: its baseline and the first stored sample can
+// arrive milliseconds apart, so that sample's rate divides a small delta by a tiny interval and can be
+// orders of magnitude too high. It lands in the first bucket after the restart, which would be the newest
+// bucket of the one-hour chart when the shots start right away. Wait for three distinct minute buckets
+// with real samples after the restart: the spurious rate is then at least two buckets away from the
+// newest one, and the screenshot run on top adds more real samples still.
+const restartBucket = Math.ceil(Date.now() / 60_000) * 60_000;
+for (const id of metricsNodeIds) {
+	await waitFor(
+		`three post-restart metrics minutes for ${id}`,
+		async () => {
+			const count = sh("sqlite3", [
+				`${D}/crhs/crhs.db`,
+				`select count(distinct b.bucket_start) from metric_buckets b join metric_series s on s.id = b.series_id where s.node_id = '${id}' and s.name = 'up' and b.level = 1 and b.bucket_start >= ${restartBucket}`,
+			]).trim();
+			return Number(count) >= 3;
+		},
+		300_000,
+	);
+}
+console.log(`post-restart metrics samples for ${metricsNodeIds.length} nodes`);
 
 for (const n of nodes.filter((x) => x.trust)) {
 	const t = await waitFor(

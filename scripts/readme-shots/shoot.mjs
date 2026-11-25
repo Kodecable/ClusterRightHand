@@ -1,5 +1,5 @@
 // usage: node shoot.mjs <locale> <port> <outdir>   (run.mjs starts it with $SHOTS_WORK set)
-// Desktop: signature, session, node-trust. Phone: the same signature request, signed with a Passkey.
+// Desktop: session, node-trust and node-metrics. Phone: the same signature request, signed with a Passkey.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -21,6 +21,7 @@ const L = en
 			register: "Register Passkey",
 			passkey: "My phone",
 			details: "Technical details",
+			metrics: "Metrics",
 		}
 	: {
 			table: "以表格列出每个节点的系统版本、nginx 状态和正在运行的进程数。",
@@ -29,6 +30,7 @@ const L = en
 			register: "注册 Passkey",
 			passkey: "我的手机",
 			details: "技术信息",
+			metrics: "指标",
 		};
 
 const browser = await chromium.launch();
@@ -140,18 +142,35 @@ try {
 
 	const signUrl = await ask(L.sign);
 	await approveUntil(() => signing.isVisible());
-	await settle(4_000); // titles and the badge
-	await shot("signature");
 
 	await page.goto(tableUrl);
 	await page.getByTestId("turn-summary").first().waitFor();
 	await settle();
 	await shot("session");
 
+	// Both node shots need more height than a 1440x900 viewport: the Technical details tab puts the trust
+	// table below the facts, and the Metrics tab puts the network chart and the availability strip below the
+	// first rows. The width and the 2x scale stay those of the other desktop shots.
+	await page.setViewportSize({ width: 1440, height: 1470 });
 	await page.goto(`${base}/nodes/${dbId}`);
 	await page.getByRole("tab", { name: L.details }).click();
+	await page.getByTestId("node-detail").evaluate((el) => {
+		el.scrollTop = 0;
+	});
 	await settle(2_500);
 	await shot("node-trust");
+
+	// The Metrics tab is summary-free; the range picker and the charts follow the tabs.
+	await page.getByRole("tab", { name: L.metrics, exact: true }).click();
+	await page.getByTestId("metrics-range-1h").click();
+	await page.getByTestId("metrics-plot-cpu").waitFor({ timeout: 30_000 });
+	await page.getByTestId("metrics-chart-availability").waitFor({ timeout: 30_000 });
+	await page.getByTestId("metrics-plot-network").waitFor({ timeout: 30_000 });
+	await page.getByTestId("node-detail").evaluate((el) => {
+		el.scrollTop = 0;
+	});
+	await settle(3_000);
+	await shot("node-metrics");
 
 	// ---- phone ----
 	await page.setViewportSize({ width: 390, height: 844 });

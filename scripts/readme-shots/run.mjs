@@ -185,7 +185,7 @@ try {
 	);
 	if (values.write) {
 		for (const locale of locales) {
-			for (const name of ["hero", "signature", "node-trust"]) {
+			for (const name of ["hero", "node-metrics", "node-trust"]) {
 				copyFileSync(join(out, `${name}.${locale}.png`), join(REPO, "doc/images", `${name}.${locale}.png`));
 			}
 		}
