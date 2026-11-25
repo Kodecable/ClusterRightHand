@@ -131,7 +131,7 @@ func TestForwardPrivilegedPTYHelperLost(t *testing.T) {
 
 	w := newCRHSWatch()
 	replies := make(chan error, 1)
-	req := privilegedPTYRequest(t, keys, "relay-lost", "/bin/sh", "-c", "sleep 30")
+	req := privilegedPTYRequest(t, keys, "relay-lost", "/bin/sh", "-c", "printf ready; sleep 30")
 	serveForwardWith(t, a, w, protocol.OfferedNames(), func(ctx context.Context, p *protocol.Peer) error {
 		replies <- openPTY(ctx, p, req)
 		return nil
@@ -140,6 +140,11 @@ func TestForwardPrivilegedPTYHelperLost(t *testing.T) {
 		t.Fatalf("pty.open: %v", err)
 	}
 	conn := waitCh(t, dialer.conns, "the terminal data connection")
+	// A daemon only marks a terminal started once its process is actually running, and the
+	// pty.open response is sent before that happens. Wait for the process's output so the
+	// connection loss below always hits a running terminal, not one the daemon records as
+	// never started.
+	collectUntil(t, conn, "ready")
 
 	// Kill the privileged mode: the forward connection breaks while the terminal runs.
 	env.stop()

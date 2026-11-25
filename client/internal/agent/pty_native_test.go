@@ -212,13 +212,16 @@ func TestNativePrivilegedPTYHelperLost(t *testing.T) {
 	w := newCRHSWatch()
 	replies := make(chan error, 1)
 	serveForwardWith(t, a, w, protocol.OfferedNames(), func(ctx context.Context, p *protocol.Peer) error {
-		replies <- openPTY(ctx, p, nativePTYRequest("native-lost", "/bin/sh", "-c", "sleep 30"))
+		replies <- openPTY(ctx, p, nativePTYRequest("native-lost", "/bin/sh", "-c", "printf ready; sleep 30"))
 		return nil
 	})
 	if err := waitCh(t, replies, "pty.open response"); err != nil {
 		t.Fatalf("pty.open: %v", err)
 	}
 	conn := waitCh(t, dialer.conns, "the terminal data connection")
+	// The helper sends its pty.open answer before it starts the process, so wait for the
+	// process's output: killing the helper must hit a running terminal, not one that never started.
+	collectUntil(t, conn, "ready")
 
 	ch := nativeChannel(t, a, "native-lost")
 	if err := ch.h.cmd.Process.Kill(); err != nil {
