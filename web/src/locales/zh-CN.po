@@ -229,6 +229,10 @@ msgstr "{running, plural, other {重启 crha 会中断 # 个运行中的任务�
 msgid "{running} running"
 msgstr "{running} 个运行中"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "{seconds} seconds"
+msgstr "{seconds} 秒"
+
 #: src/features/sessions/composer-meta.tsx
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# 步} other {# 步}}"
@@ -250,29 +254,46 @@ msgid "1 day"
 msgstr "1 天"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "1 hour"
 msgstr "1 小时"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "1 minute"
+msgstr "1 分钟"
 
 #. placeholder {0}: decisions.length
 #: src/features/sessions/session-decisions.tsx
 msgid "1 of {0}"
 msgstr "第 1 个，共 {0} 个"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "15 minutes"
+msgstr "15 分钟"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "24 hours"
+msgstr "24 小时"
+
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 天"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "365 days"
 msgstr "365 天"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "5 minutes"
 msgstr "5 分钟"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "7 days"
 msgstr "7 天"
 
@@ -281,6 +302,7 @@ msgid "7d"
 msgstr "7 天"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 天"
@@ -354,6 +376,10 @@ msgstr "方法和目标前缀"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "需要填写名称。"
+
+#: src/features/nodes/node-warnings.tsx
+msgid "A newer crha is available for this node."
+msgstr "此节点有更新的 crha 可用。"
 
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "A node can be in any number of node groups."
@@ -805,7 +831,7 @@ msgid "Approvals"
 msgstr "审批"
 
 #: src/components/decision/approval-panel.tsx
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/node-actions.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "批准"
@@ -877,6 +903,26 @@ msgstr "关联会话"
 #: src/features/terminals/pages.tsx
 msgid "Associated sessions"
 msgstr "已关联会话"
+
+#. placeholder {0}: defaults.metrics.retention.l4
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 days, and at least as long as level 3. Default: {0}."
+msgstr "至少 10 天，且不短于第 3 级。默认：{0}。"
+
+#. placeholder {0}: defaults.metrics.retention.l3
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 hours, and at least as long as level 2. Default: {0}."
+msgstr "至少 10 小时，且不短于第 2 级。默认：{0}。"
+
+#. placeholder {0}: defaults.metrics.retention.l1
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 minutes. Default: {0}."
+msgstr "至少 10 分钟。默认：{0}。"
+
+#. placeholder {0}: defaults.metrics.retention.l2
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 50 minutes, and at least as long as level 1. Default: {0}."
+msgstr "至少 50 分钟，且不短于第 1 级。默认：{0}。"
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -971,10 +1017,15 @@ msgstr "Auto Review 正在审查此请求"
 msgid "Auto Review is reviewing…"
 msgstr "Auto Review 审查中…"
 
+#: src/features/nodes/node-metrics.tsx
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
-msgstr "可用范围"
+msgstr "可用性"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Availability window"
+msgstr "可用性范围"
 
 #: src/features/nodes/pages.tsx
 msgid "available"
@@ -1072,6 +1123,10 @@ msgstr "缓存命中：{0} / {1}"
 msgid "Cache size on disk"
 msgstr "磁盘缓存大小"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Cached"
+msgstr "缓存"
+
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
 #: src/components/upload/upload-progress-dialog.tsx
@@ -1115,6 +1170,10 @@ msgstr "Cap 工作量证明"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Captcha"
 msgstr "验证码"
+
+#: src/features/nodes/pages.tsx
+msgid "Cards"
+msgstr "卡片"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
@@ -1346,6 +1405,10 @@ msgstr "笔记本上的 Claude Code"
 msgid "Clear user filter"
 msgstr "清除用户筛选"
 
+#: src/features/nodes/node-user-remark.tsx
+msgid "Click to edit remark"
+msgstr "点击编辑备注"
+
 #: src/features/nodes/pages.tsx
 msgid "Client"
 msgstr "客户端"
@@ -1387,6 +1450,10 @@ msgstr "集群"
 #: src/features/sessions/background-bar.tsx
 msgid "Collapse the subagent's jobs"
 msgstr "收起子 Agent 的后台任务"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Collect host metrics"
+msgstr "采集主机指标"
 
 #: src/features/terminals/new-terminal-dialog.tsx
 #: src/features/terminals/pages.tsx
@@ -1600,6 +1667,10 @@ msgstr "复制令牌"
 msgid "Copy trust config"
 msgstr "复制信任配置"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Cores"
+#~ msgstr "核心数"
+
 #: src/components/task-facts.tsx
 msgid "cosignature available"
 msgstr "可共同签名"
@@ -1611,6 +1682,16 @@ msgstr "无法共同签名"
 #: src/features/sessions/pages.tsx
 msgid "Couldn't find that message in this session."
 msgstr "在当前会话里找不到这条消息。"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-usage.tsx
+msgid "CPU"
+msgstr "CPU"
+
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "CPU usage"
+msgstr "CPU 使用率"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
@@ -1668,10 +1749,6 @@ msgstr "凭据"
 msgid "Credential — {0}"
 msgstr "凭据：{0}"
 
-#: src/features/nodes/pages.tsx
-msgid "crha client"
-msgstr "crha 客户端"
-
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "crha enroll will ask to re-enroll; answer yes to replace this node's key."
 msgstr "crha enroll 会询问是否重新注册；回答 yes 以替换此节点的密钥。"
@@ -1704,6 +1781,10 @@ msgstr "crhs 生成 ed25519 密钥对并保留私钥部分，只有公钥会离�
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs has no authorization signing key."
 msgstr "crhs 没有授权签名密钥。"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "crhs has not collected metrics for this node. Collection may be off, or the node may be offline or pending approval."
+msgstr "crhs 尚未采集此节点的指标。采集可能已关闭，或者节点离线、等待审批。"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs may authorize privileged tasks on this node on its own."
@@ -1791,9 +1872,10 @@ msgstr "默认提示词"
 msgid "Default prompt and protocol"
 msgstr "默认提示词与协议说明"
 
+#. placeholder {0}: defaults.metrics.enabled ? t`on` : t`off`
 #. placeholder {0}: defaults.pty.enabled ? t`on` : t`off`
 #. placeholder {0}: defaults.pty.maxPerNode
-#. placeholder {0}: defaults.pty.maxPerSession
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "Default: {0}."
 msgstr "默认：{0}。"
@@ -2026,6 +2108,15 @@ msgstr "已禁用"
 msgid "Disabled channels stop polling or disconnect."
 msgstr "停用的频道会停止轮询或断开连接。"
 
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Disk usage"
+msgstr "磁盘占用率"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Disks"
+msgstr "磁盘"
+
 #: src/components/status-badge.tsx
 msgid "Dispatched"
 msgstr "已派发"
@@ -2056,6 +2147,10 @@ msgstr "下载 {0}"
 #: src/components/file-box.tsx
 msgid "Download {name}"
 msgstr "下载 {name}"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Drag the slider or scroll to zoom inside the loaded range."
+msgstr "拖动滑块或滚动以在已加载范围内缩放。"
 
 #: src/features/terminals/new-terminal-dialog.tsx
 msgid "e.g. top -d 5"
@@ -2206,6 +2301,10 @@ msgstr "请输入至少 1 天的时长，或选择“永久保留”。"
 #: src/features/system-settings/terminals-section.tsx
 msgid "Enter a duration such as 1h or 10m."
 msgstr "请输入时长，例如 1h 或 10m。"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Enter a duration such as 24h or 7d."
+msgstr "请输入时长，例如 24h 或 7d。"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Enter a duration such as 60s or 5m."
@@ -2489,6 +2588,14 @@ msgstr "新用户的文件数"
 msgid "Files in {loadingLabel}"
 msgstr "{loadingLabel} 中的文件"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Filesystem {name}"
+#~ msgstr "文件系统 {name}"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Filesystems"
+#~ msgstr "文件系统"
+
 #: src/features/audit/pages.tsx
 msgid "Filter"
 msgstr "过滤"
@@ -2550,6 +2657,10 @@ msgstr "分叉自 <0>{0}</0>"
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "格式"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Free"
+msgstr "空闲"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "From BotFather. It is encrypted with the master key and never shown again."
@@ -2654,6 +2765,10 @@ msgstr "主机：{0}"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Host fingerprint"
 msgstr "主机指纹"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Host metrics from every node: CPU, load, memory, swap, filesystems, network and availability. Turning collection off stops the samples; stored metrics stay until their retention removes them."
+msgstr "来自每个节点的主机指标：CPU、负载、内存、交换、文件系统、网络和可用性。关闭采集会停止采样；已存储的指标会保留到其保留期结束。"
 
 #. placeholder {0}: hops[candidate.hop]?.host
 #. placeholder {1}: hops[candidate.hop]?.port
@@ -2814,6 +2929,22 @@ msgstr "跳板机 {index}"
 msgid "Jump to latest"
 msgstr "跳到最新"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-day buckets"
+msgstr "保留 1 天桶"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-hour buckets"
+msgstr "保留 1 小时桶"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-minute buckets"
+msgstr "保留 1 分钟桶"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 5-minute buckets"
+msgstr "保留 5 分钟桶"
+
 #: src/features/system-settings/retention-section.tsx
 msgid "Keep forever"
 msgstr "永久保留"
@@ -2884,6 +3015,7 @@ msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
 msgid "Last result:"
 msgstr "上次结果："
 
+#: src/features/nodes/node-card.tsx
 #: src/features/nodes/pages.tsx
 msgid "Last seen"
 msgstr "最后在线"
@@ -2997,14 +3129,35 @@ msgstr "列出提供方模型"
 msgid "Listed directly"
 msgstr "直接列出"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Live traffic"
+msgstr "实时流量"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Load"
+msgstr "负载"
+
 #: src/components/data-table.tsx
 #: src/features/sessions/background-bar.tsx
 msgid "Load more"
 msgstr "加载更多"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Loading availability…"
+msgstr "正在加载可用性…"
+
+#: src/components/emoji-picker.tsx
+msgid "Loading emoji…"
+msgstr "正在加载 Emoji…"
+
 #: src/features/library/library-section.tsx
 msgid "Loading library…"
 msgstr "正在加载资料库…"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/pages.tsx
+msgid "Loading metrics…"
+msgstr "正在加载指标…"
 
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "Loading models…"
@@ -3139,6 +3292,10 @@ msgstr "中"
 msgid "Medium risk"
 msgstr "中风险"
 
+#: src/features/nodes/node-usage.tsx
+msgid "Mem"
+msgstr "内存"
+
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -3161,6 +3318,20 @@ msgstr "成员"
 msgid "Members of {0}"
 msgstr "{0} 的成员"
 
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-usage.tsx
+msgid "Memory"
+msgstr "内存"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Memory total"
+#~ msgstr "内存总量"
+
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Memory usage"
+msgstr "内存使用率"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/sessions/composer-input.tsx
 msgid "Message"
@@ -3173,6 +3344,16 @@ msgstr "消息输入框"
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Method"
 msgstr "方法"
+
+#: src/features/nodes/node-warnings.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/system-settings/metrics-section.tsx
+msgid "Metrics"
+msgstr "指标"
+
+#: src/features/nodes/node-warnings.tsx
+msgid "Metrics collection failing"
+msgstr "指标采集失败"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -3274,6 +3455,10 @@ msgstr "名称"
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Name shown by the authenticator. Default: {defaultRpName}."
 msgstr "认证器显示的名称。默认：{defaultRpName}。"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Network"
+msgstr "网络"
 
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
@@ -3409,6 +3594,16 @@ msgstr "下一步"
 msgid "Next attempt"
 msgstr "下次尝试"
 
+#. placeholder {0}: formatZonedDateTime(traffic.nextResetAt, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-traffic.tsx
+msgid "Next reset {0}"
+msgstr "下次重置 {0}"
+
+#: src/features/nodes/node-traffic.tsx
+#~ msgid "Next reset {nextReset}"
+#~ msgstr ""
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "下次运行"
@@ -3469,6 +3664,18 @@ msgstr "尚未设置聊天渠道；请联系管理员。"
 msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
 msgstr "该主机上不运行 crha，因此不会向其发送任何内容。等待该节点的任务会结束，其访问授权和节点组成员关系会被移除。其凭据仍保留在 SSH 凭据中。"
 
+#: src/features/nodes/availability-strip.tsx
+msgid "No data"
+msgstr "无数据"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No data in this range."
+msgstr "此范围内无数据。"
+
+#: src/components/emoji-picker.tsx
+msgid "No emoji found"
+msgstr "未找到 Emoji"
+
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "没有事件"
@@ -3501,6 +3708,10 @@ msgstr "没有成员"
 #: src/features/sessions/pages.tsx
 msgid "No messages yet. Start the conversation below."
 msgstr "还没有消息。在下方开始对话。"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No metrics yet"
+msgstr "暂无指标"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "No model"
@@ -3573,6 +3784,10 @@ msgstr "没有规则"
 #: src/features/schedules/run-history.tsx
 msgid "No runs yet"
 msgstr "还没有运行记录"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No samples in this range"
+msgstr "此范围内没有样本"
 
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
@@ -3696,6 +3911,10 @@ msgstr "节点或节点组"
 #: src/features/nodes/node-tasks.tsx
 msgid "Node tasks"
 msgstr "节点任务"
+
+#: src/features/nodes/pages.tsx
+msgid "Node view"
+msgstr "节点视图"
 
 #: src/features/nodes/pages.tsx
 msgid "Node views"
@@ -3837,6 +4056,7 @@ msgstr "没有可显示的内容。"
 msgid "Now"
 msgstr "现在"
 
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "off"
 msgstr "关闭"
@@ -3858,6 +4078,7 @@ msgstr "正常"
 msgid "Old text"
 msgstr "旧文本"
 
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "on"
 msgstr "开启"
@@ -3905,6 +4126,10 @@ msgstr "仅失败时"
 msgid "Only on success"
 msgstr "仅成功时"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Only reachability is recorded for this node. Host metrics are unavailable: collection may be off, the node may be pending, or its crha may be too old to report them."
+msgstr "此节点只记录了可达性。主机指标不可用：采集可能已关闭、节点可能处于待审批状态，或者其 crha 版本过旧，无法上报指标。"
+
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
 msgstr "只列出尚未授权的目标。"
@@ -3933,6 +4158,10 @@ msgstr "在 crha 节点上打开终端以运行交互式 shell。"
 #: src/components/task-facts.tsx
 msgid "Open approval page"
 msgstr "打开审批页"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Open large chart"
+msgstr "打开大图"
 
 #: src/features/library/library-section.tsx
 msgid "Open library"
@@ -4382,11 +4611,23 @@ msgstr "原因"
 msgid "Reason (optional)"
 msgstr "原因（可选）"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Received"
+msgstr "接收"
+
 #. placeholder {0}: result.size
 #. placeholder {1}: result.sha256
 #: src/components/task-result.tsx
 msgid "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
 msgstr "已接收 {0, plural, one {# 字节} other {# 字节}}，SHA-256 <0>{1}</0>"
+
+#: src/features/nodes/node-traffic.tsx
+msgid "Received {receivedRate}, sent {sentRate}"
+msgstr "已接收 {receivedRate}，已发送 {sentRate}"
+
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Received and transmitted totals go to zero, and a new 30-day period starts now."
+msgstr "接收和发送总量将归零，并立即开始新的 30 天周期。"
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -4429,7 +4670,7 @@ msgstr "注册 SSH 密钥"
 #: src/components/decision/approval-panel.tsx
 #: src/components/decision/reject.tsx
 #: src/components/decision/signature-panel.tsx
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/node-actions.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
 msgstr "拒绝"
@@ -4508,6 +4749,10 @@ msgstr "移除 {name} 的访问权限？"
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access to {target} for {grantee}"
 msgstr "移除 {grantee} 对 {target} 的访问权限"
+
+#: src/components/emoji-picker.tsx
+msgid "Remove emoji"
+msgstr "移除 Emoji"
 
 #. placeholder {0}: row.original.name
 #: src/features/users/pages.tsx
@@ -4658,6 +4903,11 @@ msgstr "需要审批"
 msgid "Required for the new base URL"
 msgstr "新的 Base URL 需要填写 API 密钥"
 
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Reset now"
+msgstr "立即重置"
+
 #: src/features/users/pages.tsx
 msgid "Reset password"
 msgstr "重置密码"
@@ -4666,6 +4916,15 @@ msgstr "重置密码"
 #: src/features/users/reset-password-dialog.tsx
 msgid "Reset the password of {0}"
 msgstr "重置 {0} 的密码"
+
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Reset traffic now?"
+msgstr "立即重置流量？"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Resets every 30 days"
+msgstr "每 30 天重置"
 
 #: src/features/terminals/pages.tsx
 msgid "Resize terminal"
@@ -4861,6 +5120,10 @@ msgstr "运行的不是发行版本"
 msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 msgstr "此 crhs 的运行时设置。保存后无需重启即可生效，并会记入审计日志。"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Sample interval"
+msgstr "采样间隔"
+
 #: src/components/dialogs.tsx
 #: src/features/channels/channel-dialog.tsx
 #: src/features/library/limits-dialog.tsx
@@ -4951,6 +5214,10 @@ msgstr "每个终端的回滚缓冲"
 msgid "Search crha nodes…"
 msgstr "搜索 crha 节点…"
 
+#: src/components/emoji-picker.tsx
+msgid "Search emoji"
+msgstr "搜索 Emoji"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
 msgstr "搜索失败"
@@ -5018,6 +5285,10 @@ msgstr "搜索用户…"
 msgid "Searching"
 msgstr "正在搜索"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Seconds between samples. A changed interval applies from the next tick."
+msgstr "采样间隔秒数。更改后的间隔从下一个计时周期生效。"
+
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "安全验证失败，请重试。"
@@ -5051,6 +5322,10 @@ msgstr "在私聊中把下面的命令发送给机器人。关联码只能使用
 #: src/features/schedules/schedule-form.tsx
 msgid "Send timing"
 msgstr "发送时机"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Sent"
+msgstr "发送"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
@@ -5116,6 +5391,15 @@ msgstr "{0} 的会话"
 #: src/features/settings/pages.tsx
 msgid "Set"
 msgstr "已设置"
+
+#: src/components/entity-emoji.tsx
+msgid "Set emoji"
+msgstr "设置 Emoji"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Set next reset"
+msgstr "设置下次重置"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Set password"
@@ -5266,6 +5550,18 @@ msgstr "已签名。节点上线后即发送该任务。"
 msgid "Signing credentials"
 msgstr "签名凭据"
 
+#. placeholder {0}: formatDateTimeSeconds(warning.since, i18n.locale)
+#. placeholder {0}: formatZonedDateTime(traffic.periodStart, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-traffic.tsx
+#: src/features/nodes/node-warnings.tsx
+msgid "Since {0}"
+msgstr "起始于 {0}"
+
+#: src/features/nodes/node-traffic.tsx
+#~ msgid "Since {since}"
+#~ msgstr ""
+
 #: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
 msgid "Size"
@@ -5341,6 +5637,7 @@ msgstr "任务规格 {0}"
 msgid "Speed"
 msgstr "速度"
 
+#: src/features/nodes/node-card.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
 msgid "SSH"
@@ -5476,6 +5773,10 @@ msgstr "被下一次运行停止"
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Stored samples over the selected range; crhs chooses the resolution."
+#~ msgstr "所选范围内的已存储样本；crhs 会选择分辨率。"
+
 #: src/features/jobs/job.tsx
 msgid "Subagent"
 msgstr "子 Agent"
@@ -5506,6 +5807,14 @@ msgstr "压缩较早的上下文以腾出上下文窗口。可选的指令用于
 msgid "Summary"
 msgstr "摘要"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Swap"
+msgstr "交换空间"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Swap total"
+#~ msgstr "交换空间总量"
+
 #: src/app/shell/user-menu.tsx
 #: src/components/request-source.tsx
 msgid "System"
@@ -5519,6 +5828,10 @@ msgstr "系统提示词"
 #: src/features/system-settings/pages.tsx
 msgid "System settings"
 msgstr "系统设置"
+
+#: src/features/nodes/pages.tsx
+msgid "Table"
+msgstr "表格"
 
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
@@ -5684,6 +5997,10 @@ msgstr "与终端的连接已断开。"
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "凭据及其私钥将被删除，此操作无法撤销。"
 
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "The current totals and the period start stay; after this time the normal 30-day cycle continues from it."
+msgstr "当前总量和周期起始时间保持不变；到达该时间后，正常的 30 天周期将从该时间继续。"
+
 #: src/features/settings/extension-settings.tsx
 msgid "The DeepSeek API base URL."
 msgstr "DeepSeek API 的基础地址。"
@@ -5761,6 +6078,10 @@ msgstr "两次输入的新密码不一致。"
 #: src/features/node-groups/dialogs.tsx
 msgid "The node group contains exactly the nodes selected here."
 msgstr "节点组将正好包含这里选中的节点。"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "The node has metrics, but none fall in the selected range. Choose a longer range."
+msgstr "此节点有指标，但所选范围内没有样本。请选择更长的时间范围。"
 
 #: src/lib/task-output.ts
 msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
@@ -6089,6 +6410,14 @@ msgstr "该用户或用户组已拥有访问权限。"
 msgid "Time"
 msgstr "时间"
 
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Time ({zone})"
+msgstr "时间（{zone}）"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Time range"
+msgstr "时间范围"
+
 #: src/features/system-settings/attachments-section.tsx
 msgid "Time to live"
 msgstr "存活时间"
@@ -6171,6 +6500,10 @@ msgstr "工具"
 msgid "Tools of {0}"
 msgstr "{0} 的工具"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Total"
+msgstr "总计"
+
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
@@ -6189,9 +6522,9 @@ msgstr "新用户的总大小"
 msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
 msgstr "总大小限额：{bytesPercent}（{bytesUsed}/{bytesLimit}）"
 
-#: src/features/nodes/pages.tsx
-msgid "Transport"
-msgstr "传输方式"
+#: src/features/nodes/node-card.tsx
+msgid "Total traffic"
+msgstr "总流量"
 
 #: src/features/schedules/run-history.tsx
 msgid "Triggered for"
@@ -6279,11 +6612,24 @@ msgstr "非特权身份"
 msgid "Unread"
 msgstr "未读"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Up"
+#~ msgstr "在线"
+
+#: src/features/nodes/node-warnings.tsx
+msgid "Update available"
+msgstr "可更新"
+
 #: src/components/file-manager/file-list.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "更新时间"
+
+#. placeholder {0}: formatShortDateTime(metrics.dataUpdatedAt, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+msgid "Updated {0}"
+msgstr "更新于 {0}"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Upgrade"
@@ -6325,6 +6671,11 @@ msgstr "正在上传"
 msgid "Uploading files"
 msgstr "正在上传文件"
 
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Uptime"
+msgstr "运行时间"
+
 #: src/features/settings/extension-dialog.tsx
 msgid "URL"
 msgstr "URL"
@@ -6365,6 +6716,10 @@ msgstr "使用会话的模型"
 #: src/features/terminals/pages.tsx
 msgid "Use window size"
 msgstr "使用窗口尺寸"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Used"
+msgstr "已用"
 
 #. placeholder {0}: formatNumber(status.remaining, i18n.locale)
 #: src/lib/quota.ts
@@ -6472,6 +6827,11 @@ msgstr "{0} 所属的用户组"
 msgid "User or user group"
 msgstr "用户或用户组"
 
+#: src/features/nodes/node-user-remark.tsx
+#: src/features/nodes/pages.tsx
+msgid "User remark"
+msgstr "用户备注"
+
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "User signing credentials"
 msgstr "用户签名凭据"
@@ -6494,6 +6854,10 @@ msgstr "用户名请求头"
 #: src/features/users/pages.tsx
 msgid "Users"
 msgstr "用户"
+
+#: src/features/nodes/availability-strip.tsx
+msgid "UTC"
+msgstr "UTC"
 
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Valid for"

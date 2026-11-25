@@ -46,18 +46,33 @@ describe("API document", () => {
 		expect(doc.paths?.["/api/me/settings"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/me/settings"]?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/node-access-grants"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
-		for (const schema of ["SystemSettings", "NodeAccessGrant", "SigningCredentialView", "UserSettings"]) {
+		for (const schema of [
+			"SystemSettings",
+			"NodeAccessGrant",
+			"SigningCredentialView",
+			"UserSettings",
+			"NodeTraffic",
+			"EmojiBody",
+		]) {
 			expect(doc.components?.schemas?.[schema]).toBeDefined();
 		}
 
 		// Nodes: reading metadata is allowed; file browsing, a file's contents, an approval and a group change are not.
 		expect(doc.paths?.["/api/nodes"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/nodes/{id}"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/nodes/{id}/metrics"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/nodes/{id}/files"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/stat"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/file"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/approve"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/node-groups"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// A user remark and an emoji are an administrator's stored annotations, not host facts.
+		expect(doc.paths?.["/api/nodes/{id}/user-remark"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/nodes/{id}/emoji"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/node-groups/{id}/emoji"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// Traffic totals are stored state, not a host fact: changing them is an administrator's decision.
+		expect(doc.paths?.["/api/nodes/{id}/traffic/reset"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/nodes/{id}/traffic/next-reset"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		// Tasks: starting one is a tool call; reading and cancelling one stay available.
 		expect(doc.paths?.["/api/nodes/{id}/tasks"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/task-groups"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");

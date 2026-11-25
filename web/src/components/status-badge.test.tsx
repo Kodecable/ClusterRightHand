@@ -42,14 +42,16 @@ describe("StatusBadge", () => {
 describe("status family mappings", () => {
 	test("nodes", () => {
 		const { rerender } = renderWithI18n(<NodeStatusBadge status="active" />);
-		expect(screen.getByText("Active")).toBeInTheDocument();
+		expect(screen.getByText("Active")).toHaveAttribute("data-tone", "ok");
 		rerender(<NodeStatusBadge status="pending" />);
-		expect(screen.getByText("Pending approval")).toBeInTheDocument();
+		expect(screen.getByText("Pending approval")).toHaveAttribute("data-tone", "warn");
 		// Reachability is merged into the same pill instead of a second badge.
 		rerender(<NodeStatusBadge status="active" connected />);
-		expect(screen.getByText("Connected")).toBeInTheDocument();
+		expect(screen.getByText("Connected")).toHaveAttribute("data-tone", "ok");
 		rerender(<NodeStatusBadge status="active" connected={false} />);
-		expect(screen.getByText("Offline")).toBeInTheDocument();
+		const offline = screen.getByText("Offline");
+		expect(offline).toHaveAttribute("data-tone", "danger");
+		expect(offline).toHaveClass("text-danger");
 	});
 
 	test("tasks label exited as Finished, in the neutral tone, with no exit code", () => {

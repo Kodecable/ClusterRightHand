@@ -87,6 +87,22 @@ function factsOf(row: NodeRow): JsonFacts {
 	}
 }
 
+/**
+ * Whether a crha node runs a release older than crhs's own release (doc/design/distribution.md
+ * "Versions"): only two releases compare, so a development build, a version crha could not report, and
+ * an SSH node (which has no crha) never show the notice. It is a generic "update available" remark, not
+ * a plan: the upgrade itself still goes through {@link planUpgrade}.
+ */
+export function crhaUpdateAvailable(
+	transport: "client" | "ssh",
+	clientVersion: string | null,
+	crhsVersion: string,
+): boolean {
+	if (transport !== "client" || clientVersion === null) return false;
+	if (!isReleaseVersion(clientVersion) || !isReleaseVersion(crhsVersion)) return false;
+	return compareVersions(clientVersion, crhsVersion) < 0;
+}
+
 /** Sorts the requested nodes into upgrade candidates by architecture and skipped nodes with a reason. */
 export async function planUpgrade(
 	db: Db,

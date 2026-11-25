@@ -99,6 +99,7 @@ const TABLES = [
 	"node_access_grants",
 	"node_group_members",
 	"node_groups",
+	"node_traffic",
 	"nodes",
 	"orgs",
 	"rule_sets",
@@ -159,6 +160,14 @@ describeBackends("initial migration", (backend) => {
 	it("creates the schema", async () => {
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 		for (const index of INDEXES) expect(await hasIndex(backend, db, index), index).toBe(true);
+		expect(await tableColumns(backend, db, "node_traffic")).toEqual([
+			"node_id",
+			"period_start",
+			"next_reset_at",
+			"rx_bytes",
+			"tx_bytes",
+		]);
+		expect(await isNotNull(backend, db, "node_traffic", "next_reset_at")).toBe(true);
 
 		// The columns the squash had to get right: final nullability, defaults and renames.
 		expect(await tableColumns(backend, db, "authorizations")).toEqual([
@@ -241,6 +250,12 @@ describeBackends("initial migration", (backend) => {
 		expect(await isNotNull(backend, db, "sessions", "todos")).toBe(false);
 		expect(await isNotNull(backend, db, "sessions", "todos_at_compaction")).toBe(false);
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
+		// The 0003_node_extras columns: a node without a user remark or emoji stores null, not "".
+		expect(await tableColumns(backend, db, "nodes")).toEqual(expect.arrayContaining(["user_remark", "emoji"]));
+		expect(await isNotNull(backend, db, "nodes", "user_remark")).toBe(false);
+		expect(await isNotNull(backend, db, "nodes", "emoji")).toBe(false);
+		expect(await tableColumns(backend, db, "node_groups")).toContain("emoji");
+		expect(await isNotNull(backend, db, "node_groups", "emoji")).toBe(false);
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
 			expect.arrayContaining([
 				"rev",
@@ -352,7 +367,7 @@ describeBackends("initial migration", (backend) => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_metrics" }]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_metrics" }, { name: "0003_node_extras" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

@@ -189,6 +189,8 @@ export async function enrollNodeWithResult(
 			name_key: nameKey(name),
 			transport: "client",
 			status: "pending",
+			user_remark: null,
+			emoji: null,
 			public_key: publicKey,
 			hostname: input.hostname,
 			facts: JSON.stringify(input.facts ?? null),

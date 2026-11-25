@@ -148,6 +148,9 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `metrics.retention.l3` | duration, at least 10 hours | `"30d"` | How long 1-hour buckets are kept. |
 | `metrics.retention.l4` | duration, at least 10 days | `"365d"` | How long 1-day buckets are kept. |
 
+The metrics group is **System settings → Metrics**; each retention must be at least ten buckets of its
+level and at least as long as the level before it.
+
 The library defaults are copied when a user or user group is created; changing them does not touch an
 existing library. Administrators change an existing library's limits on its user or user group page.
 

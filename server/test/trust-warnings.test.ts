@@ -9,8 +9,8 @@ const PROD = "0192f000-0000-7000-8000-0000000000a2";
 const UNKNOWN = "0192f000-0000-7000-8000-0000000000ff";
 const PASSKEY = Uint8Array.from(Buffer.from("passkey-id-1"));
 
-const WEB_GROUP: NodeGroupRef = { id: WEB, name: "web" };
-const PROD_GROUP: NodeGroupRef = { id: PROD, name: "prod" };
+const WEB_GROUP: NodeGroupRef = { id: WEB, name: "web", emoji: null };
+const PROD_GROUP: NodeGroupRef = { id: PROD, name: "prod", emoji: null };
 
 const IDENTITIES = {
 	unprivileged: { uid: 998, gid: 998, user: "crha" },

@@ -38,17 +38,22 @@ function node(id: string, name: string): PublicNode {
 		lastSeenAt: null,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		approvedAt: null,
-		nodeGroups: [{ id: "group-1", name: "web" }],
+		nodeGroups: [{ id: "group-1", name: "web", emoji: null }],
 		access: "admin",
 		facts: null,
 		keyFingerprint: null,
 		connected: true,
 		clockWarning: null,
 		trustWarnings: [],
+		updateAvailable: false,
+		metricsWarning: null,
+		userRemark: null,
+		emoji: null,
+		traffic: null,
 	};
 }
 
-const GROUP: NodeGroup = { id: "group-1", name: "web", memberIds: ["node-2"] };
+const GROUP: NodeGroup = { id: "group-1", name: "web", emoji: null, memberIds: ["node-2"] };
 
 interface Call {
 	url: string;
@@ -56,7 +61,7 @@ interface Call {
 	body: unknown;
 }
 
-function mockFetch(user: User): { calls: Call[] } {
+function mockFetch(user: User, group: NodeGroup = GROUP): { calls: Call[] } {
 	const calls: Call[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -70,15 +75,41 @@ function mockFetch(user: User): { calls: Call[] } {
 			if (url === "/api/me") return json({ user });
 			if (url === "/api/directory") return json({ users: [], userGroups: [] });
 			if (url === "/api/nodes") return json({ nodes: [node("node-1", "worker-01"), node("node-2", "worker-02")] });
-			if (url === "/api/node-groups" && method === "GET") return json({ groups: [GROUP] });
+			if (url === "/api/node-groups" && method === "GET") return json({ groups: [group] });
 			if (url === "/api/node-groups" && method === "POST")
 				return json({ group: { id: "group-2", name: (body as { name: string }).name, memberIds: [] } }, 201);
 			const members = /^\/api\/node-groups\/([^/]+)\/members$/.exec(url);
 			if (members && method === "PUT")
-				return json({ group: { ...GROUP, memberIds: (body as { nodeIds: string[] }).nodeIds } });
+				return json({ group: { ...group, memberIds: (body as { nodeIds: string[] }).nodeIds } });
+			const emoji = /^\/api\/node-groups\/([^/]+)\/emoji$/.exec(url);
+			if (emoji && method === "PUT")
+				return json({ group: { ...group, emoji: (body as { emoji: string | null }).emoji } });
 			const one = /^\/api\/node-groups\/([^/]+)$/.exec(url);
-			if (one && method === "PATCH") return json({ group: { ...GROUP, name: (body as { name: string }).name } });
+			if (one && method === "PATCH") return json({ group: { ...group, name: (body as { name: string }).name } });
 			if (one && method === "DELETE") return json({ ok: true });
+			if (url === "/emojibase/en/data.json") {
+				return json([
+					{
+						label: "grinning face",
+						hexcode: "1F600",
+						emoji: "😀",
+						text: "",
+						type: 1,
+						order: 1,
+						group: 0,
+						subgroup: 0,
+						version: 1,
+						tags: ["grin", "happy"],
+					},
+				]);
+			}
+			if (url === "/emojibase/en/messages.json") {
+				return json({
+					groups: [{ key: "smileys-emotion", message: "smileys & emotion", order: 0 }],
+					subgroups: [{ key: "face-smiling", message: "smiling", order: 0 }],
+					skinTones: [{ key: "light", message: "light skin tone" }],
+				});
+			}
 			if (url.startsWith("/api/node-access-grants")) return json({ grants: [] });
 			return json({});
 		}),
@@ -86,8 +117,8 @@ function mockFetch(user: User): { calls: Call[] } {
 	return { calls };
 }
 
-async function renderPage(user: User, page: React.ReactElement = <NodeGroupsPage />) {
-	const { calls } = mockFetch(user);
+async function renderPage(user: User, page: React.ReactElement = <NodeGroupsPage />, group: NodeGroup = GROUP) {
+	const { calls } = mockFetch(user, group);
 	await authStore.load();
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	await renderWithRouter(<QueryClientProvider client={client}>{page}</QueryClientProvider>);
@@ -183,5 +214,47 @@ describe("NodeGroupDetailPage", () => {
 		await waitFor(() =>
 			expect(calls.some((call) => call.url === "/api/node-groups/group-1" && call.method === "DELETE")).toBe(true),
 		);
+	});
+
+	test("the list shows the node group emoji left of its name", async () => {
+		await renderPage(ADMIN, <NodeGroupsPage />, { ...GROUP, emoji: "🚀" });
+		const link = await screen.findByRole("link", { name: "web" });
+		const glyph = within(link).getByTestId("node-group-emoji");
+		expect(glyph).toHaveTextContent("🚀");
+		expect(glyph).toHaveAttribute("aria-hidden", "true");
+		expect(glyph.nextElementSibling).toHaveTextContent("web");
+	});
+
+	test("the detail heading shows the emoji for a member, without any editing", async () => {
+		route.params = { nodeGroupId: "group-1" };
+		await renderPage(MEMBER, <NodeGroupDetailPage />, { ...GROUP, emoji: "🚀" });
+		const heading = await screen.findByRole("heading", { name: "web" });
+		expect(within(heading).getByTestId("node-group-emoji")).toHaveTextContent("🚀");
+		expect(screen.queryByRole("button", { name: "Set emoji" })).not.toBeInTheDocument();
+	});
+
+	test("an administrator edits the emoji from the detail heading and nothing shows when it is null", async () => {
+		route.params = { nodeGroupId: "group-1" };
+		const { calls } = await renderPage(ADMIN, <NodeGroupDetailPage />, { ...GROUP, emoji: "🚀" });
+		const heading = await screen.findByRole("heading", { name: "web" });
+		const button = within(heading).getByTestId("node-group-emoji-button");
+		expect(button).toHaveTextContent("🚀");
+		expect(button).toHaveAccessibleName("Set emoji");
+
+		fireEvent.click(button);
+		const remove = await screen.findByTestId("remove-emoji", undefined, { timeout: 15_000 });
+		fireEvent.click(remove);
+		await waitFor(() =>
+			expect(
+				calls.find((call) => call.url === "/api/node-groups/group-1/emoji" && call.method === "PUT")?.body,
+			).toEqual({ emoji: null }),
+		);
+	}, 20_000);
+
+	test("no emoji renders when the group has none", async () => {
+		await renderPage(ADMIN);
+		const link = await screen.findByRole("link", { name: "web" });
+		expect(within(link).queryByTestId("node-group-emoji")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("node-group-emoji")).not.toBeInTheDocument();
 	});
 });

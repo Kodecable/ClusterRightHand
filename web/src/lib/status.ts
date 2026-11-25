@@ -7,11 +7,15 @@
  */
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
-/** Node status: pending enrollment is a warning, an active node is ok. */
-export function nodeStatusTone(status: string): StatusTone {
+/**
+ * Node status: pending enrollment is a warning, an active node that is known not to be
+ * connected is dangerous, and an active node that is connected or whose reachability is
+ * unknown (an SSH node connects per task) is ok.
+ */
+export function nodeStatusTone(status: string, connected: boolean | null = null): StatusTone {
 	switch (status) {
 		case "active":
-			return "ok";
+			return connected === false ? "danger" : "ok";
 		case "pending":
 			return "warn";
 		default:

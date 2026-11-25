@@ -15,7 +15,10 @@ import type { z } from "zod";
 import type {
 	CrhsKeyResponseSchema,
 	CrhsKeySchema,
+	EmojiBodySchema,
 	EnrollmentTokenResponseSchema,
+	MetricBucketPointSchema,
+	MetricSeriesReadingSchema,
 	NodeAccessGrantFilterSchema,
 	NodeAccessGrantSchema,
 	NodeFileEntrySchema,
@@ -26,8 +29,16 @@ import type {
 	NodeGroupRefSchema,
 	NodeGroupSchema,
 	NodeListResponseSchema,
+	NodeMetricsQuerySchema,
+	NodeMetricsResponseSchema,
+	NodeMetricsSchema,
+	NodeMetricsWarningSchema,
+	NodeTrafficNextResetBodySchema,
+	NodeTrafficResponseSchema,
+	NodeTrafficSchema,
 	NodeUpgradeResponseSchema,
 	NodeUpgradeSkipReasonSchema,
+	NodeUserRemarkBodySchema,
 	PublicNodeSchema,
 	SshCredentialSchema,
 	SshHopInputSchema,
@@ -103,8 +114,41 @@ export interface NodeTrust {
 	summary: TrustSummary | null;
 }
 
+/** The node's latest metrics sample, as the node list and detail pages show it (doc/design/metrics.md "Reading"). */
+export type NodeMetrics = z.infer<typeof NodeMetricsSchema>;
+
+/** Why crhs has not collected a sample from an online node (doc/design/metrics.md "Collection"). */
+export type NodeMetricsWarning = z.infer<typeof NodeMetricsWarningSchema>;
+
+/** A node's cumulative traffic in its current 30-day period (doc/design/metrics.md "Traffic totals"). */
+export type NodeTraffic = z.infer<typeof NodeTrafficSchema>;
+
+/** `PUT /api/nodes/{id}/traffic/next-reset`: when the current period ends. */
+export type NodeTrafficNextResetBody = z.infer<typeof NodeTrafficNextResetBodySchema>;
+
+/** `POST /api/nodes/{id}/traffic/reset` and `PUT /api/nodes/{id}/traffic/next-reset`. */
+export type NodeTrafficResponse = z.infer<typeof NodeTrafficResponseSchema>;
+
 /** A node as the WebUI lists and opens it. */
 export type PublicNode = z.infer<typeof PublicNodeSchema>;
+
+/** `PUT /api/nodes/{id}/user-remark`: the remark to set, or null to clear it (doc/design/webui.md "Node pages"). */
+export type NodeUserRemarkBody = z.infer<typeof NodeUserRemarkBodySchema>;
+
+/** `PUT /api/nodes/{id}/emoji` and `PUT /api/node-groups/{id}/emoji`: the emoji to set, or null to clear it. */
+export type EmojiBody = z.infer<typeof EmojiBodySchema>;
+
+/** Query parameters of `GET /api/nodes/{id}/metrics`. */
+export type NodeMetricsQuery = z.infer<typeof NodeMetricsQuerySchema>;
+
+/** One bucket of a metric series as the read API returns it. */
+export type MetricBucketPoint = z.infer<typeof MetricBucketPointSchema>;
+
+/** One series of `GET /api/nodes/{id}/metrics`. */
+export type MetricSeriesReading = z.infer<typeof MetricSeriesReadingSchema>;
+
+/** `GET /api/nodes/{id}/metrics`: the stored buckets of the requested series. */
+export type NodeMetricsResponse = z.infer<typeof NodeMetricsResponseSchema>;
 
 /** `GET /api/nodes`; `more` is present only with `limit`. */
 export type NodeListResponse = z.infer<typeof NodeListResponseSchema>;

@@ -7,6 +7,7 @@ import { useSystemSettings } from "./api";
 import { AttachmentsSection, DirectoryCopySkillsSection, ImageCacheSection } from "./attachments-section";
 import { GeneralSection } from "./general-section";
 import { LibraryDefaultsSection } from "./library-section";
+import { MetricsSection } from "./metrics-section";
 import { PasskeysSection } from "./passkeys-section";
 import { RetentionSection } from "./retention-section";
 import { SignInSection } from "./sign-in-section";
@@ -53,6 +54,7 @@ export function SystemSettingsPage() {
 			<ImageCacheSection settings={settings.data.settings} />
 			<DirectoryCopySkillsSection settings={settings.data.settings} />
 			<TerminalsSection settings={settings.data.settings} defaults={settings.data.defaults} />
+			<MetricsSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<SigningKeysSection />
 		</Page>
 	);

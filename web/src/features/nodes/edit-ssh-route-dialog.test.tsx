@@ -24,6 +24,11 @@ const NODE: PublicNode = {
 	connected: null,
 	clockWarning: null,
 	trustWarnings: [],
+	updateAvailable: false,
+	metricsWarning: null,
+	userRemark: null,
+	emoji: null,
+	traffic: null,
 };
 
 const DETAILS: SshNodeDetails = {

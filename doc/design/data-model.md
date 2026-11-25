@@ -128,6 +128,14 @@ from the live connection.
 
 - The cached trust report and its digest bind an authorization plan to the trust state it was made
   against ([Trust cache](privilege.md#trust-cache)).
+- `user_remark` is one line an administrator writes on the node's card: at most 50 Unicode code points,
+  trimmed, without control characters, and null when empty rather than an empty string. It is crhs-side
+  content, not a fact the node reports ([Node pages](webui.md#node-pages)). The name keeps it distinct
+  from a node's *notes*, the Markdown file on the node that `node_info` reads
+  ([Node notes](agent-runtime.md#node-notes)).
+- `emoji` is the optional emoji shown left of the node's name: one RGI emoji (a flag, a skin tone, a ZWJ
+  sequence or a keycap), at most 32 UTF-16 code units, stored as text and null when unset. It is
+  crhs-side display data, not something the node reports.
 - Facts include the notes path and clock offset; run identities are not stored.
 - Private keys are never in node rows. SSH private keys, model API keys, crhs's Noise key and the
   authorization signing key are in `secrets`, each encrypted with the master key, with the row id and
@@ -135,9 +143,17 @@ from the live connection.
 - `server_meta` holds instance metadata, such as the master key identifier that detects a wrong key file
   before any secret is read.
 
-Node groups, their members, access grants, SSH credentials and enrollment tokens (stored as hashes)
-complete the node tables. A node's metrics are in `metric_series` and `metric_buckets`, deleted with the
+Node groups have the same optional `emoji` display column; their members, access grants, SSH credentials
+and enrollment tokens (stored as hashes) complete the node tables. A node's metrics are in `metric_series` and `metric_buckets`, deleted with the
 node ([Metrics](metrics.md#storage)).
+
+`node_traffic` holds one node's cumulative traffic in its current 30-day period: `node_id` (primary key,
+deleted with the node), `period_start` and `next_reset_at` (ISO 8601 UTC) and `rx_bytes` / `tx_bytes` as
+floating point. The metrics flush adds the network deltas to it, and a read or a value past
+`next_reset_at` rolls the period, so the table never needs calendar math or a scheduled reset
+([Traffic totals](metrics.md#traffic-totals)). The traffic table, the nodes' `user_remark` and `emoji`
+columns and the node groups' `emoji` column arrived together in the `0003_node_extras` migration
+([Database](compatibility.md#database)).
 
 ## Tasks
 

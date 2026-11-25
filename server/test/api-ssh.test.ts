@@ -221,7 +221,7 @@ describeBackends("api ssh nodes", (backend) => {
 					ssh: { hops: unknown[] } | null;
 				};
 				expect(body.node.transport).toBe("ssh");
-				expect(body.node.nodeGroups).toEqual([{ id: webGroup.id, name: "web" }]);
+				expect(body.node.nodeGroups).toEqual([{ id: webGroup.id, name: "web", emoji: null }]);
 				expect(body.ssh).toEqual({
 					hops: [
 						{
@@ -424,8 +424,8 @@ describeBackends("api ssh nodes", (backend) => {
 			let res = await put("root", sshId, { nodeGroups: ["db", "db", dotted.id] });
 			expect(res.status).toBe(200);
 			expect(((await res.json()) as { nodeGroups: { id: string; name: string }[] }).nodeGroups).toEqual([
-				{ id: dotted.id, name: "a.b-c" },
-				{ id: dbGroup.id, name: "db" },
+				{ id: dotted.id, name: "a.b-c", emoji: null },
+				{ id: dbGroup.id, name: "db", emoji: null },
 			]);
 			res = await put("root", sshId, { nodeGroups: [] });
 			expect(res.status).toBe(200);
@@ -440,7 +440,7 @@ describeBackends("api ssh nodes", (backend) => {
 			const crha = (await (await req("root", `/api/nodes/${crhaId}`)).json()) as {
 				node: { nodeGroups: { id: string; name: string }[] };
 			};
-			expect(crha.node.nodeGroups).toEqual([{ id: dbGroup.id, name: "db" }]);
+			expect(crha.node.nodeGroups).toEqual([{ id: dbGroup.id, name: "db", emoji: null }]);
 			await put("root", crhaId, { nodeGroups: [] });
 		});
 

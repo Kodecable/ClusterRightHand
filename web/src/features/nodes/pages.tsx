@@ -4,16 +4,18 @@ import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
+import { EmojiGlyph, EntityEmoji } from "@/components/entity-emoji";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { NodeGroupLinks } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
+import { Spinner } from "@/components/spinner";
 import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,22 +25,84 @@ import { useAuth } from "@/lib/session";
 import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";
-import { useNode, useNodes } from "./api";
+import { useNode, useNodes, useSetNodeEmoji } from "./api";
 import { ClockWarning, clockWarningText } from "./clock-warning";
 import { DeleteNodeDialog } from "./delete-node-dialog";
 import { EditSshRouteDialog } from "./edit-ssh-route-dialog";
 import { canRunOn } from "./node-access";
+import { type NodeDecision, NodeRowActions } from "./node-actions";
+import { NodeCards } from "./node-card";
 import { NodeFiles } from "./node-files";
 import { NodeGroupsDialog } from "./node-groups-dialog";
 import { NodeLastSeen } from "./node-last-seen";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
+import { NodeUsage } from "./node-usage";
+import { MetricsWarningList, NodeWarningsIndicator, UpdateAvailableBadge } from "./node-warnings";
 import { PendingNodeDialog } from "./pending-node-dialog";
 import { ReenrollNodeDialog } from "./reenroll-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
 import { SshNodeSection } from "./ssh-node-section";
 import { TrustWarningIndicator, TrustWarningList } from "./trust-warnings";
 import { selfUpgradeReasonText, UpgradeCrhaDialog } from "./upgrade-crha-dialog";
+
+// The Metrics tab and the Overview's chart cards pull in ECharts; loading them only on first use keeps
+// the node page chunk small.
+const NodeMetricsTab = lazy(() => import("./node-metrics").then((module) => ({ default: module.NodeMetrics })));
+const NodeOverviewMetrics = lazy(() =>
+	import("./node-metrics").then((module) => ({ default: module.NodeOverviewMetrics })),
+);
+
+/** How the node list presents its nodes; cards are the default (doc/design/webui.md "Node pages"). */
+type NodeListView = "cards" | "table";
+
+export const NODE_VIEW_STORAGE_KEY = "crh.nodes.view";
+
+/** The saved view, cards by default; storage can be unavailable, which must not break the page. */
+export function readNodeView(): NodeListView {
+	try {
+		return window.localStorage.getItem(NODE_VIEW_STORAGE_KEY) === "table" ? "table" : "cards";
+	} catch {
+		return "cards";
+	}
+}
+
+function writeNodeView(view: NodeListView): void {
+	try {
+		window.localStorage.setItem(NODE_VIEW_STORAGE_KEY, view);
+	} catch {
+		// Storage is blocked: the choice still applies for this page's lifetime.
+	}
+}
+
+/** The Cards/Table switch in the page header, with the same button shape as the dashboard toolbars. */
+function NodeViewToggle({ view, onChange }: { view: NodeListView; onChange: (view: NodeListView) => void }) {
+	const { t } = useLingui();
+	return (
+		<fieldset aria-label={t`Node view`} className="flex min-w-0 items-center gap-1 rounded-md border p-0.5">
+			<Button
+				type="button"
+				size="xs"
+				variant={view === "cards" ? "secondary" : "ghost"}
+				aria-pressed={view === "cards"}
+				data-testid="nodes-view-cards"
+				onClick={() => onChange("cards")}
+			>
+				<Trans>Cards</Trans>
+			</Button>
+			<Button
+				type="button"
+				size="xs"
+				variant={view === "table" ? "secondary" : "ghost"}
+				aria-pressed={view === "table"}
+				data-testid="nodes-view-table"
+				onClick={() => onChange("table")}
+			>
+				<Trans>Table</Trans>
+			</Button>
+		</fieldset>
+	);
+}
 
 /**
  * Every node the user can see (doc/design/webui.md "Node pages"): status, connection,
@@ -48,14 +112,20 @@ import { selfUpgradeReasonText, UpgradeCrhaDialog } from "./upgrade-crha-dialog"
 export function NodesPage() {
 	const { t } = useLingui();
 	const user = useAuth().user;
+	const admin = user?.kind === "admin";
 	const nodes = useNodes();
 	const [adding, setAdding] = useState(false);
 	const [addingSsh, setAddingSsh] = useState(false);
-	const [pending, setPending] = useState<{ node: PublicNode; action: "approve" | "reject" }>();
+	const [pending, setPending] = useState<{ node: PublicNode; action: NodeDecision }>();
+	const [view, setView] = useState<NodeListView>(readNodeView);
+
+	const decide = useCallback((node: PublicNode, action: NodeDecision) => setPending({ node, action }), []);
+	const changeView = (next: NodeListView) => {
+		setView(next);
+		writeNodeView(next);
+	};
 
 	const columns = useMemo<DataTableColumn<PublicNode>[]>(() => {
-		const admin = user?.kind === "admin";
-		const canDecide = (node: PublicNode) => node.status === "pending" && admin;
 		const base: DataTableColumn<PublicNode>[] = [
 			{
 				id: "name",
@@ -63,7 +133,10 @@ export function NodesPage() {
 				minSize: 140,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-2">
-						<span className="truncate font-medium">{row.original.name}</span>
+						<span className="flex min-w-0 items-center gap-1.5">
+							<EmojiGlyph emoji={row.original.emoji} testId="node-emoji" />
+							<span className="truncate font-medium">{row.original.name}</span>
+						</span>
 						{row.original.transport === "ssh" && (
 							<Badge variant="secondary">
 								<Trans>SSH</Trans>
@@ -77,12 +150,13 @@ export function NodesPage() {
 				id: "status",
 				header: t`Status`,
 				// Room for the status and its clock and trust warning badges side by side.
-				size: 200,
+				size: 190,
 				cell: ({ row }) => (
 					<span className="flex items-center gap-1.5">
 						<NodeStatusBadge status={row.original.status} connected={row.original.connected} />
 						<ClockWarning warning={row.original.clockWarning} />
 						<TrustWarningIndicator warnings={row.original.trustWarnings} />
+						<NodeWarningsIndicator node={row.original} />
 					</span>
 				),
 			},
@@ -101,14 +175,20 @@ export function NodesPage() {
 			{
 				id: "nodeGroups",
 				header: t`Node groups`,
-				size: 150,
+				size: 130,
 				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} />,
 			},
 			{
 				id: "lastSeen",
 				header: t`Last seen`,
-				size: 110,
+				size: 100,
 				cell: ({ row }) => <NodeLastSeen lastSeenAt={row.original.lastSeenAt} connected={row.original.connected} />,
+			},
+			{
+				id: "metrics",
+				header: t`Metrics`,
+				size: 110,
+				cell: ({ row }) => <NodeUsage metrics={row.original.metrics} />,
 			},
 		];
 		// Approve/reject are administrator actions; a non-admin gets no actions column at all.
@@ -119,69 +199,71 @@ export function NodesPage() {
 				id: "actions",
 				header: actionsHeader,
 				size: 140,
-				cell: ({ row }) =>
-					canDecide(row.original) ? (
-						<span className="flex flex-nowrap items-center gap-1">
-							<Button type="button" size="xs" onClick={() => setPending({ node: row.original, action: "approve" })}>
-								<Trans>Approve</Trans>
-							</Button>
-							<Button
-								type="button"
-								size="xs"
-								variant="destructive"
-								onClick={() => setPending({ node: row.original, action: "reject" })}
-							>
-								<Trans>Reject</Trans>
-							</Button>
-						</span>
-					) : null,
+				cell: ({ row }) => <NodeRowActions node={row.original} admin={admin} onDecide={decide} />,
 			},
 		];
-	}, [t, user?.kind]);
+	}, [t, admin, decide]);
+
+	const empty = (
+		<EmptyState
+			bare
+			title={<Trans>No nodes yet</Trans>}
+			description={
+				admin ? (
+					<Trans>Use "New node" to enrol a crha client, or "New SSH node" for an SSH target.</Trans>
+				) : (
+					<Trans>An administrator grants access to nodes.</Trans>
+				)
+			}
+		/>
+	);
 
 	return (
 		<Page data-testid="nodes-page">
 			<PageHeader
 				title={<Trans>Nodes</Trans>}
 				actions={
-					user?.kind === "admin" ? (
-						<>
-							<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
-								<PlusIcon />
-								<Trans>New SSH node</Trans>
-							</Button>
-							<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
-								<PlusIcon />
-								<Trans>New node</Trans>
-							</Button>
-						</>
-					) : undefined
+					<>
+						<NodeViewToggle view={view} onChange={changeView} />
+						{admin && (
+							<>
+								<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
+									<PlusIcon />
+									<Trans>New SSH node</Trans>
+								</Button>
+								<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
+									<PlusIcon />
+									<Trans>New node</Trans>
+								</Button>
+							</>
+						)}
+					</>
 				}
 			/>
-			<DataTable
-				label={t`Nodes`}
-				columns={columns}
-				data={nodes.data ?? []}
-				getRowId={(node) => node.id}
-				loading={nodes.isLoading}
-				error={nodes.isError ? nodes.error : undefined}
-				onRetry={() => void nodes.refetch()}
-				rowLink={(node) => ({ to: "/nodes/$nodeId", params: { nodeId: node.id } })}
-				rowLabel={(node) => node.name}
-				empty={
-					<EmptyState
-						bare
-						title={<Trans>No nodes yet</Trans>}
-						description={
-							user?.kind === "admin" ? (
-								<Trans>Use "New node" to enrol a crha client, or "New SSH node" for an SSH target.</Trans>
-							) : (
-								<Trans>An administrator grants access to nodes.</Trans>
-							)
-						}
-					/>
-				}
-			/>
+			{view === "cards" ? (
+				<NodeCards
+					nodes={nodes.data ?? []}
+					loading={nodes.isLoading}
+					error={nodes.isError ? nodes.error : undefined}
+					onRetry={() => void nodes.refetch()}
+					empty={empty}
+					admin={admin}
+					onDecide={decide}
+				/>
+			) : (
+				<DataTable
+					label={t`Nodes`}
+					columns={columns}
+					data={nodes.data ?? []}
+					getRowId={(node) => node.id}
+					loading={nodes.isLoading}
+					error={nodes.isError ? nodes.error : undefined}
+					onRetry={() => void nodes.refetch()}
+					rowLink={(node) => ({ to: "/nodes/$nodeId", params: { nodeId: node.id } })}
+					rowLabel={(node) => node.name}
+					empty={empty}
+				/>
+			)}
 			{adding && <AddNodeDialog onClose={() => setAdding(false)} />}
 			{addingSsh && <AddSshNodeDialog onClose={() => setAddingSsh(false)} />}
 			{pending && (
@@ -221,8 +303,9 @@ export function NodeDetailPage() {
 	const [reenrolling, setReenrolling] = useState(false);
 	const [upgrading, setUpgrading] = useState(false);
 	const [deleting, setDeleting] = useState(false);
-	const [tab, setTab] = useState<"overview" | "technical" | "files">("overview");
+	const [tab, setTab] = useState<"overview" | "metrics" | "technical" | "files">("overview");
 	const details = node.data?.node;
+	const setEmoji = useSetNodeEmoji();
 
 	if (node.isError) {
 		return (
@@ -255,16 +338,30 @@ export function NodeDetailPage() {
 				</Link>
 			</div>
 			<PageHeader
-				title={details.name}
-				description={
-					<span className="flex flex-wrap items-center gap-2">
-						<NodeStatusBadge status={details.status} connected={details.connected} />
+				title={
+					<span className="flex min-w-0 items-center gap-2">
+						<EntityEmoji
+							emoji={details.emoji}
+							editable={admin}
+							onSelect={(emoji) => setEmoji.mutate({ id: details.id, emoji })}
+							busy={setEmoji.isPending}
+							testId="node-emoji"
+						/>
+						<span className="min-w-0">{details.name}</span>
 						{details.transport === "ssh" && (
 							<Badge variant="secondary">
 								<Trans>SSH</Trans>
 							</Badge>
 						)}
+					</span>
+				}
+				titleText={details.name}
+				titleLabel={details.name}
+				description={
+					<span className="flex flex-wrap items-center gap-2">
+						<NodeStatusBadge status={details.status} connected={details.connected} />
 						<ClockWarning warning={details.clockWarning} />
+						{details.updateAvailable && <UpdateAvailableBadge />}
 					</span>
 				}
 				actions={
@@ -316,10 +413,13 @@ export function NodeDetailPage() {
 				}
 			/>
 
-			<Tabs value={tab} onValueChange={(next) => setTab(next as "overview" | "technical" | "files")}>
+			<Tabs value={tab} onValueChange={(next) => setTab(next as "overview" | "metrics" | "technical" | "files")}>
 				<TabsList variant="line" aria-label={t`Node views`}>
 					<TabsTrigger value="overview">
 						<Trans>Overview</Trans>
+					</TabsTrigger>
+					<TabsTrigger value="metrics">
+						<Trans>Metrics</Trans>
 					</TabsTrigger>
 					<TabsTrigger value="technical">
 						<Trans>Technical details</Trans>
@@ -329,21 +429,19 @@ export function NodeDetailPage() {
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="overview" className="grid gap-3">
+					<MetricsWarningList warning={details.metricsWarning} />
 					<TrustWarningList warnings={details.trustWarnings} />
 
 					<KeyValueList
+						columns={2}
+						columnsAt="lg"
 						items={[
-							{ label: t`Transport`, value: details.transport === "ssh" ? t`SSH` : t`crha client` },
-							{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
 							{ label: t`Platform`, value: details.facts?.platform ?? "–" },
-							{
-								label: t`Privileged mode`,
-								value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
-							},
 							{
 								label: t`Node groups`,
 								value: <NodeGroupLinks nodeGroups={details.nodeGroups} />,
 							},
+							...(details.userRemark !== null ? [{ label: t`User remark`, value: details.userRemark }] : []),
 							...(details.transport === "client"
 								? [
 										{ label: t`Client`, value: details.clientVersion ?? "–" },
@@ -351,9 +449,6 @@ export function NodeDetailPage() {
 											label: t`Self-upgrade`,
 											value: selfUpgradeText(i18n, details.facts?.selfUpgrade),
 										},
-										...(details.facts?.upgradeLogPath
-											? [{ label: t`Upgrade log`, value: details.facts.upgradeLogPath, mono: true }]
-											: []),
 										{
 											label: t`Last seen`,
 											value: <NodeLastSeen lastSeenAt={details.lastSeenAt} connected={details.connected} />,
@@ -367,6 +462,12 @@ export function NodeDetailPage() {
 							{ label: t`Node id`, value: details.id, mono: true },
 						]}
 					/>
+
+					{tab === "overview" && (
+						<Suspense fallback={null}>
+							<NodeOverviewMetrics nodeId={details.id} />
+						</Suspense>
+					)}
 
 					{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
 					{editingRoute && node.data?.ssh && (
@@ -382,7 +483,35 @@ export function NodeDetailPage() {
 					<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
 					<NodeTaskList nodeId={details.id} />
 				</TabsContent>
+				<TabsContent value="metrics">
+					{/* Mounted only while open: the metrics read and the ECharts chunk load on first use. */}
+					{tab === "metrics" && (
+						<Suspense
+							fallback={
+								<div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+									<Spinner decorative />
+									<Trans>Loading metrics…</Trans>
+								</div>
+							}
+						>
+							<NodeMetricsTab nodeId={details.id} />
+						</Suspense>
+					)}
+				</TabsContent>
 				<TabsContent value="technical" className="grid gap-3">
+					{/* Record fields that are for diagnosis rather than daily use; the raw reported facts follow. */}
+					<KeyValueList
+						items={[
+							{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
+							{
+								label: t`Privileged mode`,
+								value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
+							},
+							...(details.transport === "client" && details.facts?.upgradeLogPath
+								? [{ label: t`Upgrade log`, value: details.facts.upgradeLogPath, mono: true }]
+								: []),
+						]}
+					/>
 					{/* What the node reported and how it trusts signers: for diagnosis, not daily use. */}
 					<section className="grid gap-2" aria-labelledby="node-facts-heading" data-testid="node-facts">
 						<h2 id="node-facts-heading" className="text-sm font-medium">

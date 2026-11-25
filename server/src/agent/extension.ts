@@ -77,6 +77,7 @@ Be concise.`;
 /** The session protocol: the cluster tools' usage. Always appended to the prompt, custom or default. */
 export const SESSION_TOOL_GUIDE = `- Each user message ends with a bracketed note such as [Sent 2026-11-19 19:30, Thursday, Asia/Shanghai (UTC+08:00), the user's time zone]: when it was sent, in which time zone and whose zone that is. crhs adds it; the user did not type it. Use it for "today", "yesterday" and other dates.
 - Start with list_nodes or node_info when you do not know the nodes yet. node_info facts.platform names the node's OS and architecture, and facts.hints holds short notes the node reports for people and agents.
+- node_metrics reads a node's stored host metrics over 1h, 24h, 7d, 30d or 365d: name the series or a prefix.* pattern (cpu.total, load.1, mem.available_bytes, disk.*, net.rx_bytes_per_sec, up) and it returns minimum, average, maximum, last and at most 60 points with units. Reading metrics needs no approval.
 - Every node tool takes targets. One node entry runs one task; a node group, _all or several entries run one task per node and return one result per node.
 - Prefer reading (read_file, list_dir, stat) before changing anything; explain what you are about to change.
 - exec cmd runs in the node's POSIX sh (sh -c); for bash syntax use argv ["bash", "-c", …] after checking node_info facts.shells.bash.
@@ -275,6 +276,7 @@ async function toolContextFor(
 		defaultWaitS: 600,
 		imageLimits: imageLimitsOf(options, session.model),
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
+		...(options.metrics ? { metrics: options.metrics } : {}),
 		...(extras.imageRejected ? { imageRejected: extras.imageRejected } : {}),
 		...(options.audit ? { audit: options.audit } : {}),
 		extensions: await sessionExtensionsForUser(options.db, owner.id, disabled, options.mcp),

@@ -41,4 +41,15 @@ describe("KeyValueList", () => {
 		expect(label).toHaveClass("self-center");
 		expect(value).toHaveClass("self-center");
 	});
+
+	test("two columns flow as label/value pairs from the requested breakpoint", () => {
+		const { container } = renderWithI18n(
+			<KeyValueList columns={2} columnsAt="lg" items={[{ label: "Id", value: "task-1" }]} />,
+		);
+		const list = container.querySelector('[data-slot="key-value"]');
+		expect(list).toHaveClass("grid-cols-1", "lg:grid-cols-[auto_1fr_auto_1fr]");
+		expect(list).not.toHaveClass("sm:grid-cols-[auto_1fr_auto_1fr]");
+		// The pairs keep their label/value order in each column.
+		expect(list?.querySelector("dt")?.nextElementSibling?.tagName).toBe("DD");
+	});
 });

@@ -1,5 +1,6 @@
 import type { NodeGroup, NodeGroupRef } from "@crh/api";
 import type { Db } from "../storage/db.ts";
+import { normalizeEmoji } from "../util/emoji.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import {
@@ -22,8 +23,8 @@ import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
 export type { NodeGroup, NodeGroupRef };
 
-function toRef(row: { id: string; name: string }): NodeGroupRef {
-	return { id: row.id, name: row.name };
+function toRef(row: { id: string; name: string; emoji: string | null }): NodeGroupRef {
+	return { id: row.id, name: row.name, emoji: row.emoji };
 }
 
 /** The groups each node belongs to, ordered by name. */
@@ -33,7 +34,7 @@ export async function nodeGroupsForNodes(db: Db, nodeIds: string[]): Promise<Map
 	const rows = await db
 		.selectFrom("node_group_members as m")
 		.innerJoin("node_groups as g", "g.id", "m.node_group_id")
-		.select(["m.node_id as node_id", "g.id as id", "g.name as name"])
+		.select(["m.node_id as node_id", "g.id as id", "g.name as name", "g.emoji as emoji"])
 		.where("m.node_id", "in", nodeIds)
 		.orderBy("g.name")
 		.orderBy("g.id")
@@ -71,7 +72,7 @@ export interface NodeGroupListPage {
  */
 export async function queryNodeGroups(db: Db, params: RawEntityListQuery): Promise<NodeGroupListPage> {
 	const query = parseListQuery(params);
-	let select = db.selectFrom("node_groups").select(["id", "name"]);
+	let select = db.selectFrom("node_groups").select(["id", "name", "emoji"]);
 	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
 	if (query.q !== undefined) {
 		select = select
@@ -116,7 +117,11 @@ export async function listNodeGroups(db: Db): Promise<NodeGroup[]> {
 }
 
 export async function getNodeGroup(db: Db, id: string): Promise<NodeGroup | undefined> {
-	const row = await db.selectFrom("node_groups").select(["id", "name"]).where("id", "=", id).executeTakeFirst();
+	const row = await db
+		.selectFrom("node_groups")
+		.select(["id", "name", "emoji"])
+		.where("id", "=", id)
+		.executeTakeFirst();
 	if (!row) return undefined;
 	const members = await db.selectFrom("node_group_members").select("node_id").where("node_group_id", "=", id).execute();
 	return { ...toRef(row), memberIds: members.map((m) => m.node_id) };
@@ -133,11 +138,12 @@ export async function createNodeGroup(db: Db, orgId: string, rawName: string): P
 			org_id: orgId,
 			name,
 			name_key: nameKey(name),
+			emoji: null,
 			created_at: now,
 			updated_at: now,
 		};
 		await trx.insertInto("node_groups").values(row).execute();
-		return { id: row.id, name: row.name, memberIds: [] };
+		return { id: row.id, name: row.name, emoji: null, memberIds: [] };
 	});
 }
 
@@ -159,6 +165,18 @@ export async function renameNodeGroup(db: Db, groupId: string, rawName: string):
 			.execute();
 		return (await getNodeGroup(trx, groupId)) as NodeGroup;
 	});
+}
+
+/** Sets or clears one node group's emoji; an absent group is a `NotFoundError`, like every mutation. */
+export async function setNodeGroupEmoji(db: Db, groupId: string, rawEmoji: string | null): Promise<NodeGroup> {
+	const emoji = normalizeEmoji(rawEmoji);
+	const result = await db
+		.updateTable("node_groups")
+		.set({ emoji, updated_at: new Date().toISOString() })
+		.where("id", "=", groupId)
+		.executeTakeFirst();
+	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such node group");
+	return (await getNodeGroup(db, groupId)) as NodeGroup;
 }
 
 export async function deleteNodeGroup(db: Db, groupId: string): Promise<void> {

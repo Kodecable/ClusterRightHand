@@ -24,6 +24,11 @@ const NODES: PublicNode[] = [
 		connected: true,
 		clockWarning: null,
 		trustWarnings: [],
+		updateAvailable: false,
+		metricsWarning: null,
+		userRemark: null,
+		emoji: null,
+		traffic: null,
 	},
 	{
 		id: "node-2",
@@ -43,10 +48,15 @@ const NODES: PublicNode[] = [
 		connected: true,
 		clockWarning: null,
 		trustWarnings: [],
+		updateAvailable: false,
+		metricsWarning: null,
+		userRemark: null,
+		emoji: null,
+		traffic: null,
 	},
 ];
 
-const GROUPS: NodeGroup[] = [{ id: "group-1", name: "web", memberIds: ["node-1"] }];
+const GROUPS: NodeGroup[] = [{ id: "group-1", name: "web", emoji: null, memberIds: ["node-1"] }];
 
 interface Call {
 	url: string;

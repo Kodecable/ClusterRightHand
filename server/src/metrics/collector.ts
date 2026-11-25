@@ -162,6 +162,17 @@ interface NodeState {
 	/** Whether a sampling failure has been logged, so it is logged when it starts and stops, not per sample. */
 	failing: boolean;
 	/**
+	 * The reason and start of the current sampling failure, while `failing` is true. The node list shows it
+	 * for an online node (doc/design/metrics.md "Collection"); recovery clears it.
+	 */
+	failure: { reason: string; since: string } | undefined;
+	/**
+	 * The filesystem names of the latest successful sample, in the order crha reported them. crhs does not
+	 * store report order, so the WebUI gets it from here for the first-filesystem summary card
+	 * (doc/design/metrics.md "Storage").
+	 */
+	diskOrder: string[] | undefined;
+	/**
 	 * Whether this node's sample is still running. A sample that outlives its slot is a skipped slot,
 	 * never a second sample piled on the same node (doc/design/metrics.md "Collection").
 	 */
@@ -211,6 +222,22 @@ export class MetricsCollector {
 			slotStartMs: latest.slotStartMs,
 			values: latest.values.map((value) => ({ ...value })),
 		};
+	}
+
+	/**
+	 * Why the node's sampling is currently failing, and since when, or undefined while it succeeds. Kept in
+	 * memory only: after a crhs restart it returns on the next failed sample (doc/design/metrics.md
+	 * "Collection").
+	 */
+	metricsFailure(nodeId: string): { reason: string; since: string } | undefined {
+		const failure = this.#states.get(nodeId)?.failure;
+		return failure === undefined ? undefined : { ...failure };
+	}
+
+	/** The filesystem names of the node's latest successful sample in report order, when it reported any. */
+	diskOrder(nodeId: string): string[] | undefined {
+		const order = this.#states.get(nodeId)?.diskOrder;
+		return order === undefined ? undefined : [...order];
 	}
 
 	/**
@@ -335,6 +362,8 @@ export class MetricsCollector {
 					baselineGeneration: undefined,
 					baselineIgnoredGeneration: undefined,
 					failing: false,
+					failure: undefined,
+					diskOrder: undefined,
 					sampleInFlight: false,
 				};
 				this.#states.set(row.id, created);
@@ -357,6 +386,8 @@ export class MetricsCollector {
 					baselineGeneration: undefined,
 					baselineIgnoredGeneration: undefined,
 					failing: false,
+					failure: undefined,
+					diskOrder: undefined,
 					sampleInFlight: false,
 				};
 				this.#states.set(row.id, created);
@@ -772,6 +803,10 @@ export class MetricsCollector {
 		state.baselineIgnoredGeneration = state.generation;
 		const result = this.#computer.sample(state.node.id, raw, this.#monotonic());
 		this.#observeBoot(state, result, slotStart);
+		// Keep the report order of the latest successful sample: a filesystem can disappear between
+		// samples, and the WebUI's first-filesystem card needs the order the node last reported.
+		state.diskOrder =
+			raw.disks === undefined ? undefined : raw.disks.filter((disk) => disk.kind === "ok").map((disk) => disk.name);
 		const values = [...result.values, { name: "up", kind: "gauge" as const, value: 1 }];
 		if (this.#record(state, slotStart, values)) {
 			this.#latest.set(state.node.id, {
@@ -825,14 +860,23 @@ export class MetricsCollector {
 	// ---- logging ----
 
 	#fail(state: NodeState, reason: string): void {
-		if (state.failing) return;
-		state.failing = true;
-		console.warn(`node ${state.node.id}: metrics sampling failed: ${reason}`);
+		if (!state.failing) {
+			state.failing = true;
+			state.failure = { reason, since: new Date(this.#now()).toISOString() };
+			console.warn(`node ${state.node.id}: metrics sampling failed: ${reason}`);
+			return;
+		}
+		// The failure continues: keep its start so the warning does not reset on every retry, but show
+		// the newest reason, which is the one an operator can act on.
+		if (state.failure !== undefined && state.failure.reason !== reason) {
+			state.failure = { reason, since: state.failure.since };
+		}
 	}
 
 	#recovered(state: NodeState): void {
 		if (!state.failing) return;
 		state.failing = false;
+		state.failure = undefined;
 		console.info(`node ${state.node.id}: metrics sampling recovered`);
 	}
 

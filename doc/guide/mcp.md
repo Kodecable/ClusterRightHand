@@ -65,6 +65,7 @@ Clients that support only stdio need a third-party bridge.
 |---|---|
 | `list_nodes` | The nodes you can access, with their status and privilege mode |
 | `node_info` | Facts and notes of one or more nodes |
+| `node_metrics` | Stored host metrics of a node over 1h, 24h, 7d, 30d or 365d: per-series minimum, average, maximum, last and up to 60 points |
 | `exec` | Run a command |
 | `read_file` | Read a page of lines from a file on a node, or of a library |
 | `write_file` | Create or overwrite a file |

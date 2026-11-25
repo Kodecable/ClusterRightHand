@@ -227,6 +227,8 @@ export async function createSshNode(
 			name_key: nameKey(name),
 			transport: "ssh",
 			status: "active",
+			user_remark: null,
+			emoji: null,
 			public_key: null,
 			hostname: target.host,
 			facts: null,

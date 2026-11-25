@@ -33,8 +33,9 @@ on its next rename.
 
 There are no roles and no fine-grained permissions, only two user types:
 
-- An **administrator** manages users, user groups, model settings, nodes, node groups, SSH credentials
-  and node access grants, and can see every node, session and audit event.
+- An **administrator** manages users, user groups, model settings, nodes (renaming, user remarks, emoji, node groups,
+  approvals, deleting, and a node's traffic period), SSH credentials and node access grants, and can see
+  every node, session and audit event.
 - A **member** manages their own sessions, scheduled tasks and API tokens, uses the nodes granted to
   them, and uses sessions shared with them.
 
@@ -458,7 +459,9 @@ decision, all with arguments truncated), extension changes (`extension.created`,
 chat stop), users and sharing, configuration, [terminals](pty.md#audit) (`pty.opened`, `pty.attached`,
 `pty.detached`, `pty.associated`, `pty.unassociated`, `pty.closed`, never their input or output), and
 the `crhs` CLI. Action names are dotted verbs such as
-`node.approved`, `task.approval` or `external_call.review`. Model calls are not audited; their usage is
+`node.approved`, `node.user_remark_set`, `node.emoji_set`, `node_group.emoji_set`, `node.traffic_reset`,
+`node.traffic_next_reset_set`, `task.approval` or
+`external_call.review`. Model calls are not audited; their usage is
 part of [session statistics](agent-runtime.md#session-statistics).
 
 The CLI writes with the actor `system:cli` and adds `via: "cli"`, the OS user, uid and host to the

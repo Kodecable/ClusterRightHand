@@ -16,6 +16,7 @@ import {
 	type MetricsRetentionSweepResult,
 	sweepMetricRetention,
 } from "./retention.ts";
+import { newTrafficPeriod, rollTrafficPeriod, type TrafficPeriod } from "./traffic.ts";
 
 /** How a series' values combine over a bucket (doc/design/metrics.md "Metrics"). */
 export type MetricKind = "gauge" | "delta";
@@ -61,6 +62,11 @@ export interface MetricsSweepResult {
 	series: number;
 }
 
+/** A node's current traffic period with its node id (doc/design/metrics.md "Traffic totals"). */
+export interface NodeTraffic extends TrafficPeriod {
+	nodeId: string;
+}
+
 /** Values recorded but not written yet; one record() call or part of a slot's sample. */
 interface BufferedSample {
 	nodeId: string;
@@ -76,6 +82,22 @@ interface SeriesCacheEntry {
 	kind: MetricKind;
 	/** Epoch milliseconds of the stored `last_seen_at`. */
 	lastSeenMs: number;
+}
+
+/** One buffered slot's network deltas, as the traffic totals accumulate them. */
+interface TrafficDelta {
+	slotStartMs: number;
+	rxBytes: number;
+	txBytes: number;
+}
+
+/** A selected `node_traffic` row; the table's own shape, kept apart from the computed period. */
+interface TrafficRow {
+	node_id: string;
+	period_start: string;
+	next_reset_at: string;
+	rx_bytes: number;
+	tx_bytes: number;
 }
 
 interface BucketAggregate {
@@ -145,6 +167,10 @@ const FLUSH_CHUNK_SIZE = 500;
  * level: `count` and `sum` add, `min`/`max` compare, `last` is replaced. There is no rollup job, so every
  * level is current as soon as a sample is written. Series ids are cached in memory and created on first
  * use; `last_seen_at` is written at most once per level-2 bucket per series.
+ *
+ * The same flush adds each sample's network deltas to the node's traffic totals
+ * (doc/design/metrics.md "Traffic totals"), and a node's period is rolled lazily when it is read or
+ * changed, so a node with no new traffic still shows the right period.
  */
 export class MetricsStore {
 	readonly #db: Db;
@@ -158,7 +184,7 @@ export class MetricsStore {
 	#pendingValues = 0;
 	/** Values dropped past the cap since the last flush; logged once at that flush. */
 	#overflowDropped = 0;
-	/** Serializes flushes, so two overlapping calls cannot write the same buffer twice. */
+	/** Serializes flushes and traffic mutations, so two statements never write the same row at once. */
 	#chain: Promise<void> = Promise.resolve();
 	/** Series id by `nodeId\0name`, resolved lazily and dropped when retention removes the series. */
 	#seriesCache = new Map<string, SeriesCacheEntry>();
@@ -196,8 +222,19 @@ export class MetricsStore {
 
 	/** Writes everything buffered so far in one transaction. */
 	flush(): Promise<void> {
-		const run = this.#chain.then(() => this.#flushOnce());
-		this.#chain = run.catch(() => {});
+		return this.#exclusive(() => this.#flushOnce());
+	}
+
+	/**
+	 * Runs `work` after every earlier flush and traffic mutation settled. A failure does not block the
+	 * next caller: the chain keeps only the settled signal, and each caller gets its own result.
+	 */
+	#exclusive<T>(work: () => Promise<T>): Promise<T> {
+		const run = this.#chain.then(work);
+		this.#chain = run.then(
+			() => {},
+			() => {},
+		);
 		return run;
 	}
 
@@ -229,14 +266,7 @@ export class MetricsStore {
 	): Promise<MetricSeriesReading[]> {
 		const names = [...new Set(seriesNames)];
 		if (names.length === 0) return [];
-		const chosen =
-			level ??
-			chooseMetricsLevel({
-				fromMs,
-				toMs,
-				nowMs: this.#now(),
-				retention: this.#retention(),
-			});
+		const chosen = level ?? this.chooseLevel(fromMs, toMs);
 		const seriesRows = await this.#db
 			.selectFrom("metric_series")
 			.select(["id", "name", "kind", "last_seen_at"])
@@ -284,6 +314,122 @@ export class MetricsStore {
 					buckets: bySeries.get(row.id) ?? [],
 				},
 			];
+		});
+	}
+
+	/**
+	 * The names of the node's stored series, sorted, for `prefix.*` expansion in the read API and the
+	 * `node_metrics` tool (doc/design/metrics.md "Reading"). A node with no sample has none.
+	 */
+	async seriesNames(nodeId: string): Promise<string[]> {
+		const rows = await this.#db
+			.selectFrom("metric_series")
+			.select("name")
+			.where("node_id", "=", nodeId)
+			.orderBy("name")
+			.execute();
+		return rows.map((row) => row.name);
+	}
+
+	/**
+	 * A node's traffic for the current period, or undefined before its first traffic row. A period that
+	 * already ended is rolled before it is returned, so a node that sent nothing while crhs was down still
+	 * shows the period that contains now; the roll is written back only when it happened, so the common
+	 * read does not write (doc/design/metrics.md "Traffic totals").
+	 */
+	traffic(nodeId: string, nowMs: number = this.#now()): Promise<NodeTraffic | undefined> {
+		// Serialized with the flush that adds the next value, so a roll cannot interleave with a batch
+		// that read the old period and would write it back.
+		return this.#exclusive(async () => {
+			const row = await this.#trafficRow(nodeId);
+			if (row === undefined) return undefined;
+			const stored = trafficOfRow(row);
+			const rolled = rollTrafficPeriod(stored, nowMs);
+			if (rolled.nextResetAtMs !== stored.nextResetAtMs) {
+				// The old end is part of the condition: a reset or a new end that already happened wins.
+				await this.#db
+					.updateTable("node_traffic")
+					.set(trafficColumns(rolled))
+					.where("node_id", "=", nodeId)
+					.where("next_reset_at", "=", row.next_reset_at)
+					.execute();
+			}
+			return { nodeId, ...rolled };
+		});
+	}
+
+	/**
+	 * The traffic periods of several nodes, with every expired period rolled in memory only
+	 * (doc/design/metrics.md "Traffic totals"). This is the node list's read: one statement per chunk of
+	 * ids, no write-back, so a rolled period shows zero totals until the next sample or mutation writes it.
+	 * It must never write, so it is not serialized with the flush chain.
+	 */
+	async trafficForNodes(nodeIds: readonly string[], nowMs: number = this.#now()): Promise<Map<string, NodeTraffic>> {
+		const traffic = new Map<string, NodeTraffic>();
+		const ids = [...new Set(nodeIds)];
+		for (const chunk of chunks(ids, FLUSH_CHUNK_SIZE)) {
+			const rows = await this.#db
+				.selectFrom("node_traffic")
+				.select(["node_id", "period_start", "next_reset_at", "rx_bytes", "tx_bytes"])
+				.where("node_id", "in", chunk)
+				.execute();
+			for (const row of rows) {
+				traffic.set(row.node_id, { nodeId: row.node_id, ...rollTrafficPeriod(trafficOfRow(row), nowMs) });
+			}
+		}
+		return traffic;
+	}
+
+	/**
+	 * "Reset now": the totals go to zero and a new period starts at `nowMs`. A row is created when the node
+	 * had none, so the next sample adds to this period rather than starting an older one.
+	 */
+	resetTraffic(nodeId: string, nowMs: number = this.#now()): Promise<NodeTraffic> {
+		return this.#exclusive(async () => {
+			const period = newTrafficPeriod(nowMs);
+			await this.#upsertTraffic([{ node_id: nodeId, ...trafficColumns(period) }]);
+			return { nodeId, ...period };
+		});
+	}
+
+	/**
+	 * Sets when the current period ends, keeping its start and totals; the normal 30-day cycle continues
+	 * from the new end. A period that already ended is rolled first, so the change applies to the period
+	 * that contains now. The caller validates the instant; a missing row is created starting now.
+	 */
+	setTrafficNextReset(nodeId: string, nextResetAtMs: number, nowMs: number = this.#now()): Promise<NodeTraffic> {
+		return this.#exclusive(async () => {
+			const row = await this.#trafficRow(nodeId);
+			const current = row === undefined ? newTrafficPeriod(nowMs) : rollTrafficPeriod(trafficOfRow(row), nowMs);
+			const period = { ...current, nextResetAtMs };
+			await this.#upsertTraffic([{ node_id: nodeId, ...trafficColumns(period) }]);
+			return { nodeId, ...period };
+		});
+	}
+
+	async #trafficRow(nodeId: string): Promise<TrafficRow | undefined> {
+		return this.#db
+			.selectFrom("node_traffic")
+			.select(["node_id", "period_start", "next_reset_at", "rx_bytes", "tx_bytes"])
+			.where("node_id", "=", nodeId)
+			.executeTakeFirst();
+	}
+
+	/** Upserts traffic rows in one statement per chunk, so a reset writes once, not once per column. */
+	async #upsertTraffic(rows: readonly TrafficRow[]): Promise<void> {
+		await this.#upsertTrafficIn(this.#db, rows);
+	}
+
+	/**
+	 * The level {@link read} chooses for a range when the caller names none; exposed so a response can say
+	 * which level it used.
+	 */
+	chooseLevel(fromMs: number, toMs: number): MetricLevel {
+		return chooseMetricsLevel({
+			fromMs,
+			toMs,
+			nowMs: this.#now(),
+			retention: this.#retention(),
 		});
 	}
 
@@ -361,39 +507,41 @@ export class MetricsStore {
 		this.#pendingValues = 0;
 		try {
 			const aggregates = aggregateSamples(samples);
-			if (aggregates.length === 0) return;
+			const traffic = trafficDeltas(samples);
+			if (aggregates.length === 0 && traffic.size === 0) return;
+			const nodeIds = [...new Set([...aggregates.map((aggregate) => aggregate.nodeId), ...traffic.keys()])];
 			await this.#db.transaction().execute(async (trx) => {
 				// A node may be deleted between record() and this flush; its series cascade away, so writing
 				// its aggregates would fail the whole transaction with a foreign key error. The existence
 				// check is the transaction's first statement, before anything is written.
-				const liveNodeIds = await this.#liveNodeIds(trx, aggregates);
-				const missing = new Set(
-					aggregates.map((aggregate) => aggregate.nodeId).filter((nodeId) => !liveNodeIds.has(nodeId)),
-				);
+				const liveNodeIds = await this.#liveNodeIds(trx, nodeIds);
+				const missing = new Set(nodeIds.filter((nodeId) => !liveNodeIds.has(nodeId)));
 				if (missing.size > 0) this.#forgetNodes(missing);
 				const live = aggregates.filter((aggregate) => !missing.has(aggregate.nodeId));
-				if (live.length === 0) return;
-				const entries = await this.#resolveSeries(trx, live);
-				const bucketRows: BucketRow[] = [];
-				for (const aggregate of live) {
-					const entry = entries.get(seriesCacheKey(aggregate.nodeId, aggregate.name));
-					// #resolveSeries resolves every live aggregate; this only narrows the type.
-					if (entry === undefined) continue;
-					await this.#touchLastSeen(trx, aggregate, entry);
-					for (const bucket of aggregate.buckets) {
-						bucketRows.push({
-							series_id: entry.id,
-							level: bucket.level,
-							bucket_start: bucket.bucketStart,
-							count: bucket.count,
-							sum: bucket.sum,
-							min: bucket.min,
-							max: bucket.max,
-							last: bucket.last,
-						});
+				if (live.length > 0) {
+					const entries = await this.#resolveSeries(trx, live);
+					const bucketRows: BucketRow[] = [];
+					for (const aggregate of live) {
+						const entry = entries.get(seriesCacheKey(aggregate.nodeId, aggregate.name));
+						// #resolveSeries resolves every live aggregate; this only narrows the type.
+						if (entry === undefined) continue;
+						await this.#touchLastSeen(trx, aggregate, entry);
+						for (const bucket of aggregate.buckets) {
+							bucketRows.push({
+								series_id: entry.id,
+								level: bucket.level,
+								bucket_start: bucket.bucketStart,
+								count: bucket.count,
+								sum: bucket.sum,
+								min: bucket.min,
+								max: bucket.max,
+								last: bucket.last,
+							});
+						}
 					}
+					await this.#upsertBuckets(trx, bucketRows);
 				}
-				await this.#upsertBuckets(trx, bucketRows);
+				await this.#addTraffic(trx, traffic, liveNodeIds);
 			});
 		} catch (err) {
 			this.#requeueAfterFailure(samples, err);
@@ -436,14 +584,72 @@ export class MetricsStore {
 		this.#logOverflowDropped();
 	}
 
-	/** The aggregates' node ids that still exist, selected in chunks as the transaction's first read. */
-	async #liveNodeIds(trx: Transaction<Database>, aggregates: readonly SeriesAggregate[]): Promise<Set<string>> {
+	/** The nodes of this flush that still exist, selected in chunks as part of the transaction. */
+	async #liveNodeIds(trx: Transaction<Database>, nodeIds: readonly string[]): Promise<Set<string>> {
 		const live = new Set<string>();
-		for (const chunk of chunks([...new Set(aggregates.map((aggregate) => aggregate.nodeId))], FLUSH_CHUNK_SIZE)) {
+		for (const chunk of chunks([...new Set(nodeIds)], FLUSH_CHUNK_SIZE)) {
 			const rows = await trx.selectFrom("nodes").select("id").where("id", "in", chunk).execute();
 			for (const row of rows) live.add(row.id);
 		}
 		return live;
+	}
+
+	/**
+	 * Adds the flush's network deltas to each live node's traffic row
+	 * (doc/design/metrics.md "Traffic totals"). Values are applied in slot order, and a period that ended is
+	 * rolled before its first value, so a flush that spans a period boundary starts the new period at the
+	 * old end. The rows are written with one multi-row upsert per chunk, never one statement per node.
+	 */
+	async #addTraffic(
+		trx: Transaction<Database>,
+		traffic: ReadonlyMap<string, readonly TrafficDelta[]>,
+		liveNodeIds: ReadonlySet<string>,
+	): Promise<void> {
+		const nodeIds = [...traffic.keys()].filter((nodeId) => liveNodeIds.has(nodeId));
+		if (nodeIds.length === 0) return;
+		const stored = new Map<string, TrafficRow>();
+		for (const chunk of chunks(nodeIds, FLUSH_CHUNK_SIZE)) {
+			const rows = await trx
+				.selectFrom("node_traffic")
+				.select(["node_id", "period_start", "next_reset_at", "rx_bytes", "tx_bytes"])
+				.where("node_id", "in", chunk)
+				.execute();
+			for (const row of rows) stored.set(row.node_id, row);
+		}
+		const rows: TrafficRow[] = [];
+		for (const nodeId of nodeIds) {
+			let period = stored.has(nodeId) ? trafficOfRow(stored.get(nodeId) as TrafficRow) : undefined;
+			for (const value of traffic.get(nodeId) ?? []) {
+				// A missing row starts at the value's slot; an existing one rolls from its current bounds.
+				const current =
+					period === undefined ? newTrafficPeriod(value.slotStartMs) : rollTrafficPeriod(period, value.slotStartMs);
+				period = {
+					...current,
+					rxBytes: current.rxBytes + value.rxBytes,
+					txBytes: current.txBytes + value.txBytes,
+				};
+			}
+			if (period !== undefined) rows.push({ node_id: nodeId, ...trafficColumns(period) });
+		}
+		await this.#upsertTrafficIn(trx, rows);
+	}
+
+	/** The transaction-scoped half of {@link #upsertTraffic}, shared by flushes and mutations. */
+	async #upsertTrafficIn(writer: Db | Transaction<Database>, rows: readonly TrafficRow[]): Promise<void> {
+		for (const chunk of chunks(rows, FLUSH_CHUNK_SIZE)) {
+			await writer
+				.insertInto("node_traffic")
+				.values(chunk)
+				.onConflict((oc) =>
+					oc.column("node_id").doUpdateSet({
+						period_start: sql<string>`${sql.ref("excluded.period_start")}`,
+						next_reset_at: sql<string>`${sql.ref("excluded.next_reset_at")}`,
+						rx_bytes: sql<number>`${sql.ref("excluded.rx_bytes")}`,
+						tx_bytes: sql<number>`${sql.ref("excluded.tx_bytes")}`,
+					}),
+				)
+				.execute();
+		}
 	}
 
 	/**
@@ -567,6 +773,56 @@ export class MetricsStore {
 				.execute();
 		}
 	}
+}
+
+/** A stored traffic row as the 30-day period logic uses it. */
+function trafficOfRow(row: TrafficRow): TrafficPeriod {
+	return {
+		periodStartMs: Date.parse(row.period_start),
+		nextResetAtMs: Date.parse(row.next_reset_at),
+		rxBytes: row.rx_bytes,
+		txBytes: row.tx_bytes,
+	};
+}
+
+/** The columns of a traffic row, with instants stored as ISO 8601 (doc/design/metrics.md "Storage"). */
+function trafficColumns(period: TrafficPeriod): Omit<TrafficRow, "node_id"> {
+	return {
+		period_start: new Date(period.periodStartMs).toISOString(),
+		next_reset_at: new Date(period.nextResetAtMs).toISOString(),
+		rx_bytes: period.rxBytes,
+		tx_bytes: period.txBytes,
+	};
+}
+
+/**
+ * The network deltas of the buffered samples, by node in slot order. A sample without `net.rx_bytes` or
+ * `net.tx_bytes` contributes nothing, and both values of one sample are added together, so the totals
+ * follow the deltas the computation produced (doc/design/metrics.md "Traffic totals").
+ */
+function trafficDeltas(samples: readonly BufferedSample[]): Map<string, TrafficDelta[]> {
+	const byNode = new Map<string, TrafficDelta[]>();
+	for (const sample of samples) {
+		let rxBytes = 0;
+		let txBytes = 0;
+		let observed = false;
+		for (const value of sample.values) {
+			if (!Number.isFinite(value.value)) continue;
+			if (value.name === "net.rx_bytes") {
+				rxBytes += value.value;
+				observed = true;
+			} else if (value.name === "net.tx_bytes") {
+				txBytes += value.value;
+				observed = true;
+			}
+		}
+		if (!observed) continue;
+		const list = byNode.get(sample.nodeId) ?? [];
+		list.push({ slotStartMs: sample.slotStartMs, rxBytes, txBytes });
+		byNode.set(sample.nodeId, list);
+	}
+	for (const list of byNode.values()) list.sort((left, right) => left.slotStartMs - right.slotStartMs);
+	return byNode;
 }
 
 function seriesCacheKey(nodeId: string, name: string): string {

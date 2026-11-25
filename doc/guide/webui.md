@@ -244,6 +244,36 @@ never started are listed as skipped.
 A **clock** warning means the node's clock differs from crhs's
 ([Clock synchronization](operations.md#clock-synchronization)).
 
+The node list opens as cards; **Cards** / **Table** in the page header switches between them and your
+choice is remembered in this browser. A card shows the node's name, status, SSH badge and warnings (the
+warnings sit before the status, at the right end of the name row), its node groups and the same
+approve/reject actions as a table row, then CPU, memory and disk usage, total traffic, uptime (or last
+seen for a node that does not report one) and the node's user remark. Live traffic is in the node
+page's **Overview** summary, not the card. A value the latest sample lacks shows "–"; the details sit
+in the card's tooltips, such as the filesystem's name and when the traffic period started and resets.
+Click the card,
+or focus it and press Enter, to open the node page; the links and action buttons inside it do their own
+thing. The table view keeps the **Metrics** column with each node's CPU and memory use from the latest
+sample. A sample older than three collection intervals is dimmed; a node with no sample yet shows
+nothing.
+
+The user remark is the bottom line of each card. Administrators click it to write one line about the
+node: Enter or clicking elsewhere saves, Escape cancels, and clearing the text removes the remark. It is
+shown truncated, with the full text on hover; everyone else reads it without an editor, and an empty
+remark is not shown to them at all. The node page's **Overview** repeats a set remark as a **User
+remark** row.
+
+A node or node group can have an emoji, shown just left of its name in the lists, the node cards and
+the detail page headings. On a node's or a node group's page an administrator clicks the emoji, or the
+small smiley-plus button beside the name, to open the emoji picker: search for one, pick it, or
+**Remove emoji** to clear it. Everyone else sees the emoji without a way to change it. The picker is
+part of crhs, so it works without internet access.
+
+Beside the status, **Metrics** marks a node whose metrics collection is currently failing, and it is
+shown only while the node is online; the reason and the time it started are on the node page.
+**Update available** marks a crha node whose release is older than crhs's own, with **Upgrade crha** on
+the node page when you are an administrator.
+
 ### Adding a crha node
 
 Administrators choose **New node**, optionally enter a name, and copy the command, the crhs address
@@ -263,8 +293,46 @@ connection and create the node. See [Add an SSH node](install.md#add-an-ssh-node
 
 ### The node page
 
-The node page has an **Overview** tab with the node's facts, its access grants and its ten most recent
-tasks, and a **Files** tab.
+The node page has an **Overview** tab, a **Metrics** tab and a **Files** tab. The Overview has the
+node's facts, the newest-sample metrics summary and the CPU and memory charts below them, its access
+grants and its ten most recent tasks. An SSH node's **SSH** badge sits after its name in the heading.
+
+The **Overview** shows five cards from the newest sample: uptime, CPU usage, memory usage, the first
+filesystem's disk usage and live network traffic. Usage turns amber from 60 % and red from 80 %; a card
+with no data shows "–" instead of disappearing. The disk card names its filesystem only in a tooltip.
+Live traffic shows the newest received and transmitted rate, each after an arrow; its tooltip and
+accessible label give the values per second.
+
+Below those cards, the CPU and memory charts use the Metrics tab's default 1-hour window, without a
+range picker: they refresh every 30 seconds while the page is visible, reuse the Metrics tab's data
+while its range is still 1 hour, and expand into the same zoom dialog. A node with no host metrics
+shows neither the cards nor the charts on the Overview; the Metrics tab explains why.
+
+The traffic totals are in the network card below its chart: the received and transmitted total, when the
+current period started, when it resets and that it resets every 30 days. A node with a traffic period but
+no network series yet still shows the card with just those totals. Times there are shown in your
+browser's time zone with the zone named after them. Administrators get **Reset now**, which zeroes the
+totals and starts a new 30-day period immediately after a confirmation, and **Set next reset**, which
+moves when the current period ends while keeping its totals and lets the normal 30-day cycle continue
+from the new time.
+
+The **Metrics** tab picks the range with **1 hour**, **24 hours**, **7 days**, **30 days** and
+**365 days**, and **Updated …** names the last read; the window slides with a refresh every 30 seconds
+while the tab is visible. The charts show CPU (with the range of values inside each bucket), load, memory
+(used, cached and free), swap (used; the card disappears when the node has none), every filesystem's used
+space in one chart, and network traffic across the full row with its traffic totals below. The charts
+read the stored buckets, so a longer range uses a coarser resolution, and join buckets only where they
+exist. A card with no data says so. Click a chart's title to open the same loaded data in a large dialog
+with a zoom slider; zooming only re-frames what is already loaded.
+
+Below the charts, an availability strip shows one bar per day over the last 30, 90 or 365 days: green near
+100 %, amber from 50 %, red below that, and grey for a day without data. A bar's tooltip gives its date
+range and percentage, and several days share a bar when the window is wider than the strip. A node
+sampled as reachability only (collection off, a pending node, or a crha too old to report host metrics)
+shows only the strip and says why; a node with no stored sample shows an empty state.
+
+**Technical details** starts with the hostname, the privileged mode (an SSH node says "ignored (SSH)")
+and the upgrade log when the node reports one, then the facts the node reported and its trust report.
 
 **Files** browses the node's file system with the same file manager as a library, as you and without
 privilege: every listing or file check is an ordinary `file.list` or `file.stat` task, so rules and
@@ -273,8 +341,8 @@ tasks page to see them). It shows sizes and modification times and previews PNG,
 images. A file can be **Downloaded** through a `file.pull` task capped at your own library's one-file
 limit; when that pull needs an approval, the download fails with the approval page named. Uploading,
 deleting and renaming on a node come later. Administrators
-can rename it, change its node groups, edit an SSH node's route, re-enroll it (crha nodes), and delete
-it.
+can rename it, change its node groups, edit an SSH node's route, re-enroll it (crha nodes), reset or
+reschedule its traffic period, and delete it.
 
 **Last seen** reads **Now** while a crha node is connected.
 
@@ -296,8 +364,8 @@ key, so they have no **Re-enroll** action.
 
 **Self-upgrade** (crha nodes) says whether crhs can upgrade the node's crha, and why not: installed by
 the package manager, not started by systemd, units not written by `crha enroll`, no privileged side
-that runs as root, and so on. **Upgrade log** names the node's upgrade log, which the **Files** tab
-opens.
+that runs as root, and so on. **Upgrade log** on **Technical details** names the node's upgrade log,
+which the **Files** tab opens.
 
 Administrators upgrade crha with **Upgrade crha**, here or on a node group's page. The dialog first
 shows the plan: the nodes upgraded to crhs's version, a warning with the number of running tasks the
@@ -317,9 +385,9 @@ memberships are removed. The host itself is not changed; to use it again, enroll
 
 ## Node groups
 
-**Node groups** lists the groups and their member counts; a group's page lists its members.
-Administrators create groups, edit members, rename and delete them, grant access to a group on its page,
-and upgrade the crha of its members with **Upgrade crha**. Rules and grants that referred to a deleted
+**Node groups** lists the groups and their member counts, each with its emoji; a group's page lists its
+members. Administrators create groups, edit members, rename them, set their emoji, delete them, grant
+access to a group on its page, and upgrade the crha of its members with **Upgrade crha**. Rules and grants that referred to a deleted
 group show it as deleted; they never match another group with the same name.
 
 ## Users and user groups
@@ -533,6 +601,10 @@ lists every value and its default. Each settings section has its own **Save**.
 - **Directory copies and skills.** The most files and bytes one directory copy into a library takes, and
   the most skills a session's system prompt lists from `skills/` in the owner's library; past that limit
   it lists none and the model browses the directory itself.
+- **Metrics.** **Collect host metrics** turns sampling on or off; stored samples stay until retention
+  removes them. **Sample interval** is 15, 20, 30 or 60 seconds and applies from the next tick. The four
+  retention fields keep 1-minute, 5-minute, 1-hour and 1-day buckets, each at least ten buckets long and
+  at least as long as the level before it; a rejected value is shown on its field.
 - **Authorization signing keys.** The keys crhs signs authorizations with; the newest is marked and
   used by default. **Add authorization signing key** creates one and shows the public key line to paste
   into a node's `privileged.toml`. The table counts the nodes that trust each key; the delete dialog

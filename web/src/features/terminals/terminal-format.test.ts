@@ -33,6 +33,11 @@ function node(overrides: Partial<PublicNode>): PublicNode {
 		connected: true,
 		clockWarning: null,
 		trustWarnings: [],
+		updateAvailable: false,
+		metricsWarning: null,
+		userRemark: null,
+		emoji: null,
+		traffic: null,
 		...overrides,
 	};
 }

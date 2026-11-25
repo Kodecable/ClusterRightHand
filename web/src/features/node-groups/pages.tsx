@@ -8,6 +8,7 @@ import { CopyableId } from "@/components/copyable-id";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState, TableEmpty } from "@/components/empty-state";
+import { EmojiGlyph, EntityEmoji } from "@/components/entity-emoji";
 import { ErrorState } from "@/components/error-state";
 import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
@@ -22,7 +23,7 @@ import { useNodeNames, useNodes } from "@/features/nodes/api";
 import { UpgradeCrhaDialog } from "@/features/nodes/upgrade-crha-dialog";
 import { useAuth } from "@/lib/session";
 import { cn, MONO_CELL } from "@/lib/utils";
-import { useDeleteNodeGroup, useNodeGroups } from "./api";
+import { useDeleteNodeGroup, useNodeGroups, useSetNodeGroupEmoji } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 
 /** One row of the member table: the stored node id and nothing else. */
@@ -74,7 +75,12 @@ export function NodeGroupsPage() {
 				id: "name",
 				header: t`Name`,
 				minSize: 140,
-				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				cell: ({ row }) => (
+					<span className="flex min-w-0 items-center gap-1.5">
+						<EmojiGlyph emoji={row.original.emoji} testId="node-group-emoji" />
+						<span className="truncate font-medium">{row.original.name}</span>
+					</span>
+				),
 				meta: { title: (group: NodeGroup) => group.name },
 			},
 			{
@@ -164,6 +170,7 @@ export function NodeGroupDetailPage() {
 	const nodes = useNodes();
 	const admin = useAuth().user?.kind === "admin";
 	const remove = useDeleteNodeGroup();
+	const setEmoji = useSetNodeGroupEmoji();
 	const navigate = useNavigate();
 	const [renaming, setRenaming] = useState(false);
 	const [upgrading, setUpgrading] = useState(false);
@@ -258,7 +265,20 @@ export function NodeGroupDetailPage() {
 				</Link>
 			</div>
 			<PageHeader
-				title={group.name}
+				title={
+					<span className="flex min-w-0 items-center gap-2">
+						<EntityEmoji
+							emoji={group.emoji}
+							editable={admin}
+							onSelect={(emoji) => setEmoji.mutate({ id: group.id, emoji })}
+							busy={setEmoji.isPending}
+							testId="node-group-emoji"
+						/>
+						<span className="min-w-0">{group.name}</span>
+					</span>
+				}
+				titleText={group.name}
+				titleLabel={group.name}
 				description={
 					<span className="text-sm text-muted-foreground">
 						<Plural value={group.memberIds.length} one="# member" other="# members" />

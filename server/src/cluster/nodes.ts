@@ -4,6 +4,7 @@ import type { Selectable } from "kysely";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
+import { normalizeEmoji } from "../util/emoji.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import {
 	likeContains,
@@ -73,6 +74,8 @@ export function toPublicNode(
 		lastSeenAt: row.last_seen_at,
 		createdAt: row.created_at,
 		approvedAt: row.approved_at,
+		userRemark: row.user_remark,
+		emoji: row.emoji,
 		nodeGroups,
 		access,
 		facts,
@@ -80,6 +83,11 @@ export function toPublicNode(
 		connected: row.transport === "ssh" ? null : false,
 		clockWarning: null,
 		trustWarnings,
+		// The live values: the routes fill them in, and a caller that builds a node without them (the
+		// approve and rename responses) still sends a complete PublicNode.
+		updateAvailable: false,
+		metricsWarning: null,
+		traffic: null,
 	};
 }
 
@@ -179,6 +187,44 @@ export async function renameNode(db: Db, nodeId: string, rawName: string): Promi
 			.execute();
 		return { ...node, name, name_key: nameKey(name) };
 	});
+}
+
+/** The user remark's limit in Unicode code points, not UTF-16 code units, so an emoji counts once. */
+export const NODE_USER_REMARK_MAX_CODE_POINTS = 50;
+
+/**
+ * The stored form of a user remark (doc/design/data-model.md "Nodes"): trimmed, empty means no remark,
+ * one line without control characters, at most `NODE_USER_REMARK_MAX_CODE_POINTS` Unicode code points.
+ */
+export function normalizeNodeUserRemark(raw: string | null): string | null {
+	if (raw === null) return null;
+	const userRemark = raw.trim();
+	if (userRemark === "") return null;
+	if (/\p{Cc}/u.test(userRemark)) throw new UserError("user remark: must be a single line without control characters");
+	if ([...userRemark].length > NODE_USER_REMARK_MAX_CODE_POINTS) {
+		throw new UserError(`user remark: at most ${NODE_USER_REMARK_MAX_CODE_POINTS} characters are allowed`);
+	}
+	return userRemark;
+}
+
+/** Sets or clears one node's user remark; an absent node is a `NotFoundError`, like every node mutation. */
+export async function setNodeUserRemark(db: Db, nodeId: string, rawUserRemark: string | null): Promise<NodeRow> {
+	const userRemark = normalizeNodeUserRemark(rawUserRemark);
+	const result = await db
+		.updateTable("nodes")
+		.set({ user_remark: userRemark })
+		.where("id", "=", nodeId)
+		.executeTakeFirst();
+	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such node");
+	return db.selectFrom("nodes").selectAll().where("id", "=", nodeId).executeTakeFirstOrThrow();
+}
+
+/** Sets or clears one node's emoji; an absent node is a `NotFoundError`, like every node mutation. */
+export async function setNodeEmoji(db: Db, nodeId: string, rawEmoji: string | null): Promise<NodeRow> {
+	const emoji = normalizeEmoji(rawEmoji);
+	const result = await db.updateTable("nodes").set({ emoji }).where("id", "=", nodeId).executeTakeFirst();
+	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such node");
+	return db.selectFrom("nodes").selectAll().where("id", "=", nodeId).executeTakeFirstOrThrow();
 }
 
 export async function deleteNode(db: Db, nodeId: string): Promise<void> {

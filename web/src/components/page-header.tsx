@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 export function PageHeader({
 	title,
 	titleText,
+	titleLabel,
 	description,
 	actions,
 	className,
@@ -19,6 +20,11 @@ export function PageHeader({
 	title: ReactNode;
 	/** Plain text of the title for the tooltip; a string title is used as is. */
 	titleText?: string;
+	/**
+	 * The heading's accessible name when the title contains a control (an emoji's edit button): the name
+	 * stays the entity's name, and the control keeps its own name.
+	 */
+	titleLabel?: string;
 	description?: ReactNode;
 	actions?: ReactNode;
 	className?: string;
@@ -33,6 +39,7 @@ export function PageHeader({
 			<div className="min-w-0 flex-1 basis-64 space-y-1">
 				<h1
 					title={fullTitle}
+					aria-label={titleLabel}
 					className="line-clamp-2 min-w-0 break-words text-xl font-semibold tracking-tight [overflow-wrap:anywhere]"
 				>
 					{title}

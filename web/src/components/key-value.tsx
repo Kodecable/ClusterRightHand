@@ -18,10 +18,13 @@ export function KeyValueList({
 	items,
 	className,
 	columns = 1,
+	columnsAt = "sm",
 }: {
 	items: readonly KeyValueItem[];
 	className?: string;
 	columns?: 1 | 2;
+	/** The breakpoint a two-column list starts at; one column below it. */
+	columnsAt?: "sm" | "lg";
 }) {
 	return (
 		<dl
@@ -30,7 +33,12 @@ export function KeyValueList({
 				// Labels and values share a 20px line box (mono values too), so text of both sizes is centered on the same line
 				// without the baseline shift that made mono rows taller; a control value opts into centering.
 				"grid items-start gap-x-6 gap-y-2 text-sm",
-				columns === 2 ? "grid-cols-1 sm:grid-cols-[auto_1fr_auto_1fr]" : "grid-cols-[max-content_1fr]",
+				columns === 2
+					? cn(
+							"grid-cols-1",
+							columnsAt === "lg" ? "lg:grid-cols-[auto_1fr_auto_1fr]" : "sm:grid-cols-[auto_1fr_auto_1fr]",
+						)
+					: "grid-cols-[max-content_1fr]",
 				className,
 			)}
 		>

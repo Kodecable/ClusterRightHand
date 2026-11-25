@@ -2,6 +2,7 @@ import type { TrustWarning, TrustWarningSeverity } from "@crh/api";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { CircleAlertIcon, InfoIcon, TriangleAlertIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 
@@ -104,35 +105,94 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 	}
 }
 
-/** The trust warnings of a node, as a list whose colour and icon follow the severity. */
-export function TrustWarningList({ warnings, className }: { warnings: readonly TrustWarning[]; className?: string }) {
-	const { t } = useLingui();
-	if (warnings.length === 0) return null;
+/** One warning as the shared list shows it: severity, hover title and the translated text. */
+export interface WarningItem {
+	key: string;
+	severity: TrustWarningSeverity;
+	title?: string;
+	content: ReactNode;
+}
+
+/**
+ * Warnings as a list whose colour and icon follow the severity (doc/design/webui.md "Node pages"). The
+ * trust warnings and the metrics collection warning have the same shape, so the two read alike. Each
+ * entry has its own border, icon and colour, so the list needs no heading of its own.
+ */
+export function WarningList({
+	items,
+	label,
+	testId = "node-warnings",
+	className,
+}: {
+	items: readonly WarningItem[];
+	label: string;
+	testId?: string;
+	className?: string;
+}) {
+	if (items.length === 0) return null;
 	return (
-		// Each warning has its own border, icon and colour, so the list needs no heading of its own.
-		<section aria-label={t`Trust warnings`} data-testid="trust-warnings" className={cn("grid gap-2", className)}>
+		<section aria-label={label} data-testid={testId} className={cn("grid gap-2", className)}>
 			<ul className="grid gap-2">
-				{warnings.map((warning) => {
-					const Icon = SEVERITY_ICONS[warning.severity];
+				{items.map((item) => {
+					const Icon = SEVERITY_ICONS[item.severity];
 					return (
 						<li
-							key={`${warning.kind}-${warning.uuid ?? warning.trustName ?? ""}`}
-							data-severity={warning.severity}
-							title={warning.message}
+							key={item.key}
+							data-severity={item.severity}
+							title={item.title}
 							className={cn(
 								"flex items-start gap-2 rounded-lg border px-3 py-2 text-sm",
-								SEVERITY_STYLES[warning.severity],
+								SEVERITY_STYLES[item.severity],
 							)}
 						>
 							<Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-							<p className="min-w-0" role={warning.severity === "danger" ? "alert" : undefined}>
-								<TrustWarningText warning={warning} />
-							</p>
+							<div className="min-w-0" role={item.severity === "danger" ? "alert" : undefined}>
+								{item.content}
+							</div>
 						</li>
 					);
 				})}
 			</ul>
 		</section>
+	);
+}
+
+/** The trust warnings of a node, as a list whose colour and icon follow the severity. */
+export function TrustWarningList({ warnings, className }: { warnings: readonly TrustWarning[]; className?: string }) {
+	const { t } = useLingui();
+	return (
+		<WarningList
+			label={t`Trust warnings`}
+			testId="trust-warnings"
+			className={className}
+			items={warnings.map((warning) => ({
+				key: `${warning.kind}-${warning.uuid ?? warning.trustName ?? ""}`,
+				severity: warning.severity,
+				title: warning.message,
+				content: <TrustWarningText warning={warning} />,
+			}))}
+		/>
+	);
+}
+
+/** A compact node-list marker in the trust warning style, for a warning that is not a trust entry. */
+export function WarningIndicator({
+	tone,
+	title,
+	testId,
+	children,
+}: {
+	tone: "danger" | "warn" | "info";
+	title: string;
+	testId?: string;
+	children: ReactNode;
+}) {
+	return (
+		<span data-testid={testId} data-tone={tone} title={title} className="inline-flex">
+			<StatusBadge tone={tone} dot={false} title={title}>
+				{children}
+			</StatusBadge>
+		</span>
 	);
 }
 
@@ -146,9 +206,9 @@ export function TrustWarningIndicator({ warnings }: { warnings: readonly TrustWa
 			? "warn"
 			: "info";
 	return (
-		<StatusBadge tone={tone} dot={false} title={i18n._(msg`Trust warnings`)}>
+		<WarningIndicator tone={tone} title={i18n._(msg`Trust warnings`)} testId="trust-warning-indicator">
 			<TriangleAlertIcon className="size-3.5" aria-hidden="true" />
 			<Trans>Trust</Trans>
-		</StatusBadge>
+		</WarningIndicator>
 	);
 }

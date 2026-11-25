@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
+import type { NodeMetrics } from "@crh/api";
 import {
 	BinaryBodySchema,
+	EmojiBodySchema,
 	EnrollmentTokenBodySchema,
 	EnrollmentTokenResponseSchema,
 	ErrorResponseSchema,
@@ -14,12 +16,17 @@ import {
 	NodeGroupsResponseSchema,
 	NodeListQuerySchema,
 	NodeListResponseSchema,
+	NodeMetricsQuerySchema,
+	NodeMetricsResponseSchema,
 	NodeRenameBodySchema,
 	NodeResponseSchema,
 	NodeStatQuerySchema,
+	NodeTrafficNextResetBodySchema,
+	NodeTrafficResponseSchema,
 	NodeTrustResponseSchema,
 	NodeUpgradeBodySchema,
 	NodeUpgradeResponseSchema,
+	NodeUserRemarkBodySchema,
 	OkResponseSchema,
 } from "@crh/api/schemas";
 import type { Context, MiddlewareHandler } from "hono";
@@ -30,7 +37,7 @@ import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
 import { type CrhaBinary, isReleaseVersion, ReleaseError } from "../cluster/crha-release.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
-import { planUpgrade, upgradeSpec } from "../cluster/node-upgrade.ts";
+import { crhaUpdateAvailable, planUpgrade, upgradeSpec } from "../cluster/node-upgrade.ts";
 import {
 	approveNode,
 	deleteNode,
@@ -40,6 +47,8 @@ import {
 	type PublicNode,
 	queryNodesForUser,
 	renameNode,
+	setNodeEmoji,
+	setNodeUserRemark,
 	toPublicNode,
 } from "../cluster/nodes.ts";
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
@@ -49,8 +58,22 @@ import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
 import { findUserLibrary } from "../library/library.ts";
 import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES, sniffMagic } from "../library/media-type.ts";
 import { openTransferLocation, type TransferContext, type TransferLocationJson } from "../library/transfer-location.ts";
+import type { LatestMetrics } from "../metrics/collector.ts";
+import { METRIC_LEVEL_BUCKET_MS, type MetricLevel } from "../metrics/levels.ts";
+import {
+	expandMetricsSeriesNames,
+	invalidMetricsSeriesEntry,
+	MAX_EXPANDED_METRICS_SERIES,
+	MAX_METRICS_RANGE_MS,
+	MAX_METRICS_SERIES,
+	parseMetricsInstant,
+	parseMetricsSeriesList,
+} from "../metrics/read.ts";
+import type { NodeTraffic } from "../metrics/store.ts";
+import { isValidTrafficNextReset, type TrafficPeriod } from "../metrics/traffic.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
+import { CRH_VERSION } from "../version.ts";
 import type { AppOptions } from "./app.ts";
 import { contentDisposition } from "./content-disposition.ts";
 import type { AppEnv } from "./context.ts";
@@ -77,6 +100,51 @@ const detailRoute = defineRoute({
 	agent: "allow",
 	request: { params: IdParamSchema },
 	responses: { 200: { description: "The node", ...json(NodeDetailResponseSchema) } },
+});
+
+const metricsRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}/metrics",
+	tags: TAGS,
+	summary: "A node's stored host metrics: bucket averages for gauges, totals and counts for deltas",
+	description:
+		'Reads one storage level (doc/design/metrics.md "Reading"). `series` names series or `prefix.*` patterns; `from` and `to` are ISO 8601 or epoch milliseconds and the range is at most 400 days. Without `level`, the coarsest level that covers the range and gives at least 200 points is used. The response also carries the node traffic period (always 30 days) and, when known, the filesystem report order.',
+	agent: "allow",
+	request: { params: IdParamSchema, query: NodeMetricsQuerySchema },
+	responses: { 200: { description: "The series and their buckets", ...json(NodeMetricsResponseSchema) } },
+});
+
+const trafficResetRoute = defineRoute({
+	method: "post",
+	path: "/nodes/{id}/traffic/reset",
+	tags: TAGS,
+	summary: "Reset a node's traffic totals now and start a new 30-day period (administrators)",
+	description:
+		'The totals go to zero and the current period starts now; the next reset is 30 days later (doc/design/metrics.md "Traffic totals").',
+	agent: "deny", // it changes stored totals, not a host fact
+	request: { params: IdParamSchema },
+	responses: {
+		200: { description: "The new period", ...json(NodeTrafficResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		404: { description: "No such node", ...json(ErrorResponseSchema) },
+	},
+});
+
+const nextResetRoute = defineRoute({
+	method: "put",
+	path: "/nodes/{id}/traffic/next-reset",
+	tags: TAGS,
+	summary: "Set when a node's current traffic period ends (administrators)",
+	description:
+		'The totals and the period start are kept, and the 30-day cycle continues from the new end (doc/design/metrics.md "Traffic totals").',
+	agent: "deny", // it changes stored totals, not a host fact
+	request: { params: IdParamSchema, body: { required: true, ...json(NodeTrafficNextResetBodySchema) } },
+	responses: {
+		200: { description: "The changed period", ...json(NodeTrafficResponseSchema) },
+		400: { description: "The instant is not in the next 30 days", ...json(ErrorResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		404: { description: "No such node", ...json(ErrorResponseSchema) },
+	},
 });
 
 const trustRoute = defineRoute({
@@ -223,15 +291,46 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
 	const clockWarnMs = () => options.settings?.current().clockWarnMs ?? options.clockWarnMs ?? 60_000;
+	/** The current sample interval, for marking a latest sample older than three intervals as stale. */
+	const metricsIntervalMs = () => options.settings?.current().metrics.intervalMs ?? 60_000;
+	/** Whether collection is on; a node with collection off gets no metrics warning. */
+	const metricsEnabled = () => options.settings?.current().metrics.enabled ?? true;
 	const crhsFingerprints =
 		options.signingKeys?.fingerprints ?? (options.authorizationKey ? [options.authorizationKey.fingerprint] : []);
 
-	/** Fills in what only the live server knows: the connection state and the clock warning. */
-	const live = (n: PublicNode): PublicNode => ({
-		...n,
-		connected: n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false),
-		clockWarning: nodeClockWarning(n.facts, clockWarnMs()),
+	/** The wire shape of a traffic period: instants are ISO 8601 UTC, bytes are numbers. */
+	const trafficView = (traffic: TrafficPeriod) => ({
+		periodStart: new Date(traffic.periodStartMs).toISOString(),
+		nextResetAt: new Date(traffic.nextResetAtMs).toISOString(),
+		rxBytes: traffic.rxBytes,
+		txBytes: traffic.txBytes,
 	});
+
+	/**
+	 * Fills in what only the live server knows: the connection state, the clock warning, the latest
+	 * metrics sample and the current traffic period the node list shows without reading buckets
+	 * (doc/design/metrics.md "Reading").
+	 */
+	const live = (n: PublicNode, traffic?: NodeTraffic): PublicNode => {
+		const latest = options.metricsCollector?.latest(n.id);
+		const connected = n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false);
+		// A sample failure is shown only while the node is online: an offline node already says so in its
+		// status, and collection being off is a setting, not the node's failure (doc/design/metrics.md
+		// "Collection"). An SSH node has no connection, so being active is its online state.
+		const online = n.status === "active" && (n.transport === "ssh" || connected === true);
+		const failure = online && metricsEnabled() ? options.metricsCollector?.metricsFailure?.(n.id) : undefined;
+		return {
+			...n,
+			connected,
+			clockWarning: nodeClockWarning(n.facts, clockWarnMs()),
+			updateAvailable: crhaUpdateAvailable(n.transport, n.clientVersion, CRH_VERSION),
+			metricsWarning: failure === undefined ? null : { reason: failure.reason, since: failure.since },
+			...(latest
+				? { metrics: latestMetricsView(latest, metricsIntervalMs(), options.metricsCollector?.diskOrder?.(n.id)) }
+				: {}),
+			traffic: traffic === undefined ? null : trafficView(traffic),
+		};
+	};
 
 	const clusterUnavailable = () => new HTTPException(503, { message: "the cluster is not running" });
 
@@ -257,6 +356,40 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		},
 	});
 
+	const userRemarkRoute = defineRoute({
+		method: "put",
+		path: "/nodes/{id}/user-remark",
+		tags: TAGS,
+		summary: "Set or clear a node's user remark (administrators)",
+		description:
+			'The user remark is one line of at most 50 Unicode code points; it is trimmed, and an empty remark clears it (doc/design/webui.md "Node pages").',
+		agent: "deny", // a stored administrator annotation on infrastructure, not a host fact
+		request: { params: IdParamSchema, body: { required: true, ...json(NodeUserRemarkBodySchema) } },
+		responses: {
+			200: { description: "The node with its new user remark", ...json(NodeResponseSchema) },
+			400: { description: "The user remark is not one line of at most 50 code points", ...json(ErrorResponseSchema) },
+			403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+			404: { description: "No such node", ...json(ErrorResponseSchema) },
+		},
+	});
+
+	const emojiRoute = defineRoute({
+		method: "put",
+		path: "/nodes/{id}/emoji",
+		tags: TAGS,
+		summary: "Set or clear a node's emoji (administrators)",
+		description:
+			'Exactly one emoji is accepted: a flag, a skin tone, a ZWJ sequence or a keycap; null or an empty string clears it (doc/design/webui.md "Node pages").',
+		agent: "deny", // a stored administrator annotation on infrastructure, not a host fact
+		request: { params: IdParamSchema, body: { required: true, ...json(EmojiBodySchema) } },
+		responses: {
+			200: { description: "The node with its new emoji", ...json(NodeResponseSchema) },
+			400: { description: "The value is not exactly one emoji", ...json(ErrorResponseSchema) },
+			403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+			404: { description: "No such node", ...json(ErrorResponseSchema) },
+		},
+	});
+
 	const nodeGroupsRoute = defineRoute({
 		method: "put",
 		path: "/nodes/{id}/node-groups",
@@ -274,9 +407,13 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	app.openapi(listRoute, async (c) => {
 		const params = c.req.valid("query");
 		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprints });
+		// One read of every listed node's traffic row, whatever the page size: the list must not issue a
+		// statement per node (doc/design/metrics.md "Traffic totals").
+		const store = options.metricsStore ?? options.metrics;
+		const traffic = store ? await store.trafficForNodes(page.items.map((node) => node.id)) : undefined;
 		return c.json(
 			{
-				nodes: page.items.map(live),
+				nodes: page.items.map((node) => live(node, traffic?.get(node.id))),
 				...(params.limit === undefined ? {} : { more: page.more }),
 			},
 			200,
@@ -291,9 +428,76 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
 		const trustWarnings =
 			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprints })).get(id) ?? [];
-		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings));
+		const store = options.metricsStore ?? options.metrics;
+		const traffic = store ? (await store.trafficForNodes([id])).get(id) : undefined;
+		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings), traffic);
 		if (!isAdmin(c.get("user"))) return c.json({ node }, 200);
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null }, 200);
+	});
+
+	/**
+	 * A node's stored host metrics (doc/design/metrics.md "Reading"). Node access is the only check: reading
+	 * metrics is not a task, so no rule or approval applies. A hidden node answers 404 like every node route.
+	 */
+	app.openapi(metricsRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		if (!(await access(c, id))) throw new NotFoundError("no such node");
+		const store = options.metricsStore ?? options.metrics;
+		if (!store) throw new UserError("host metrics are not available on this server");
+		const params = c.req.valid("query");
+		const requested = parseMetricsSeriesList(params.series);
+		if (requested.length === 0) throw new UserError("series: at least one series is required");
+		if (requested.length > MAX_METRICS_SERIES) {
+			throw new UserError(`series: at most ${MAX_METRICS_SERIES} entries are allowed`);
+		}
+		for (const entry of requested) {
+			const problem = invalidMetricsSeriesEntry(entry);
+			if (problem !== undefined) throw new UserError(problem);
+		}
+		const fromMs = parseMetricsInstant(params.from);
+		if (fromMs === undefined) throw new UserError("from: must be an ISO 8601 time or Unix epoch milliseconds");
+		const toMs = parseMetricsInstant(params.to);
+		if (toMs === undefined) throw new UserError("to: must be an ISO 8601 time or Unix epoch milliseconds");
+		if (fromMs >= toMs) throw new UserError("from: must be before to");
+		if (toMs - fromMs > MAX_METRICS_RANGE_MS) {
+			throw new UserError(`to: the range must be at most ${MAX_METRICS_RANGE_MS / 86_400_000} days`);
+		}
+		const available = await store.seriesNames(id);
+		const names = expandMetricsSeriesNames(available, requested);
+		if (names.length > MAX_EXPANDED_METRICS_SERIES) {
+			throw new UserError(
+				`series: the patterns name ${names.length} series, at most ${MAX_EXPANDED_METRICS_SERIES} are allowed`,
+			);
+		}
+		const level = params.level === undefined ? store.chooseLevel(fromMs, toMs) : (Number(params.level) as MetricLevel);
+		const readings = await store.read(id, names, fromMs, toMs, level);
+		// The report order is only in the collector's memory; the bucket rows keep no order
+		// (doc/design/metrics.md "Storage"). A period that already ended is rolled before it is served.
+		const diskOrder = options.metricsCollector?.diskOrder?.(id);
+		const traffic = await store.traffic(id);
+		return c.json(
+			{
+				level,
+				bucketMs: METRIC_LEVEL_BUCKET_MS[level],
+				series: readings.map((reading) => ({
+					name: reading.name,
+					kind: reading.kind,
+					lastSeenAt: reading.lastSeenAt,
+					buckets: reading.buckets.map((bucket) => ({
+						t: bucket.bucketStart,
+						count: bucket.count,
+						avg: bucket.count > 0 ? bucket.sum / bucket.count : 0,
+						sum: bucket.sum,
+						min: bucket.min,
+						max: bucket.max,
+						last: bucket.last,
+					})),
+				})),
+				...(diskOrder === undefined || diskOrder.length === 0 ? {} : { diskOrder }),
+				traffic: traffic === undefined ? null : trafficView(traffic),
+			},
+			200,
+		);
 	});
 
 	/** The node's trust panel (doc/design/privilege.md "Trust cache"): the last TrustReport, its digest and its entries. */
@@ -555,6 +759,64 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	};
 
 	/**
+	 * "Reset now" for a node's traffic totals (doc/design/metrics.md "Traffic totals"): administrators
+	 * only, audited, and hidden nodes answer 404 like every other node route. The new period starts now.
+	 */
+	app.openapi(trafficResetRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		await manageable(c, id);
+		const store = options.metricsStore ?? options.metrics;
+		if (!store) throw new UserError("host metrics are not available on this server");
+		const before = await store.traffic(id);
+		const traffic = trafficView(await store.resetTraffic(id));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.traffic_reset",
+			target: { type: "node", id },
+			detail: {
+				previous_period_start: before === undefined ? null : new Date(before.periodStartMs).toISOString(),
+				previous_rx_bytes: before?.rxBytes ?? 0,
+				previous_tx_bytes: before?.txBytes ?? 0,
+				period_start: traffic.periodStart,
+				next_reset_at: traffic.nextResetAt,
+			},
+		});
+		return c.json({ traffic }, 200);
+	});
+
+	/**
+	 * Changes when the current traffic period ends (doc/design/metrics.md "Traffic totals"): the totals and
+	 * the start stay, and the fixed 30-day cycle continues from the new end. Only a future instant within
+	 * one period is accepted; the server does no calendar or timezone math on it.
+	 */
+	app.openapi(nextResetRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		await manageable(c, id);
+		const store = options.metricsStore ?? options.metrics;
+		if (!store) throw new UserError("host metrics are not available on this server");
+		const { nextResetAt } = c.req.valid("json");
+		// The instant must name its zone: a zoneless local time would make the server's own timezone
+		// decide the period, which this design keeps out of crhs (doc/design/metrics.md "Traffic totals").
+		const nextResetAtMs = /(?:Z|[+-]\d{2}:\d{2})$/.test(nextResetAt) ? Date.parse(nextResetAt) : Number.NaN;
+		const nowMs = Date.now();
+		if (!Number.isFinite(nextResetAtMs) || !isValidTrafficNextReset(nextResetAtMs, nowMs)) {
+			throw new UserError("nextResetAt: must be in the future and at most 30 days from now, as ISO 8601 UTC");
+		}
+		const before = await store.traffic(id);
+		const traffic = trafficView(await store.setTrafficNextReset(id, nextResetAtMs, nowMs));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.traffic_next_reset_set",
+			target: { type: "node", id },
+			detail: {
+				previous_next_reset_at: before === undefined ? null : new Date(before.nextResetAtMs).toISOString(),
+				next_reset_at: traffic.nextResetAt,
+			},
+		});
+		return c.json({ traffic }, 200);
+	});
+
+	/**
 	 * A one-time token that replaces this crha node's key instead of creating a node
 	 * (doc/design/protocol.md "Rotation and revocation"). The node keeps its id, name, node groups,
 	 * access grants and task history; it becomes pending again until the new key is approved.
@@ -611,6 +873,38 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			action: "node.renamed",
 			target: { type: "node", id },
 			detail: { old_name: before?.name, new_name: node.name },
+		});
+		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
+	});
+
+	/** One line of context an administrator writes on a node's card; hidden nodes answer 404 first. */
+	app.openapi(userRemarkRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const level = await manageable(c, id);
+		const { userRemark } = c.req.valid("json");
+		const before = await getNode(db, id);
+		const node = await setNodeUserRemark(db, id, userRemark);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.user_remark_set",
+			target: { type: "node", id },
+			detail: { previous: before?.user_remark ?? null, userRemark: node.user_remark },
+		});
+		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
+	});
+
+	/** The emoji shown left of the node's name; hidden nodes answer 404 and members 403 first. */
+	app.openapi(emojiRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const level = await manageable(c, id);
+		const { emoji } = c.req.valid("json");
+		const before = await getNode(db, id);
+		const node = await setNodeEmoji(db, id, emoji);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.emoji_set",
+			target: { type: "node", id },
+			detail: { previous: before?.emoji ?? null, emoji: node.emoji },
 		});
 		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
 	});
@@ -770,4 +1064,77 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 async function discardLocation(context: TransferContext, location: TransferLocationJson): Promise<void> {
 	await openTransferLocation(context, location).discard();
+}
+
+/** A filesystem's two values in the latest sample, when both are present. */
+function sampleDisk(disks: ReadonlyMap<string, { used?: number; total?: number }>, name: string): NodeMetrics["disk"] {
+	const filesystem = disks.get(name);
+	if (filesystem?.used === undefined || filesystem.total === undefined || !(filesystem.total > 0)) return undefined;
+	const used = Math.max(0, filesystem.used);
+	return { name, usedRatio: used / filesystem.total, usedBytes: used, totalBytes: filesystem.total };
+}
+
+/**
+ * The first filesystem of a sample (doc/design/metrics.md "Reading"): the first name the collector
+ * remembers reporting that has both values, else `root`, else the alphabetically first complete one. A
+ * filesystem with only one of the two values cannot say how full it is, so it is skipped.
+ */
+function firstSampleDisk(
+	disks: ReadonlyMap<string, { used?: number; total?: number }>,
+	diskOrder: readonly string[] | undefined,
+): NodeMetrics["disk"] {
+	for (const name of diskOrder ?? []) {
+		const disk = sampleDisk(disks, name);
+		if (disk !== undefined) return disk;
+	}
+	const root = sampleDisk(disks, "root");
+	if (root !== undefined) return root;
+	for (const name of [...disks.keys()].sort()) {
+		const disk = sampleDisk(disks, name);
+		if (disk !== undefined) return disk;
+	}
+	return undefined;
+}
+
+/**
+ * The node list's figures from a collector sample (doc/design/metrics.md "Reading"): the time, whether the
+ * sample succeeded, CPU, memory, the first filesystem, uptime and the live network rates. A field the
+ * sample lacks is absent, because a missing value is not zero (doc/design/metrics.md "Metrics").
+ */
+function latestMetricsView(latest: LatestMetrics, intervalMs: number, diskOrder?: readonly string[]): NodeMetrics {
+	const values = new Map<string, number>();
+	const disks = new Map<string, { used?: number; total?: number }>();
+	for (const entry of latest.values) {
+		values.set(entry.name, entry.value);
+		const match = /^disk\.(.+)\.(used_bytes|total_bytes)$/.exec(entry.name);
+		if (match === null) continue;
+		const filesystem = disks.get(match[1] as string) ?? {};
+		filesystem[match[2] === "used_bytes" ? "used" : "total"] = entry.value;
+		disks.set(match[1] as string, filesystem);
+	}
+	const value = (name: string): number | undefined => values.get(name);
+	const cpu = value("cpu.total");
+	const total = value("mem.total_bytes");
+	const available = value("mem.available_bytes");
+	const memUsed =
+		total !== undefined && available !== undefined && total > 0 ? Math.max(0, 1 - available / total) : undefined;
+	const memUsedBytes =
+		total !== undefined && available !== undefined && total > 0 ? Math.max(0, total - available) : undefined;
+	const uptimeSec = value("uptime");
+	const disk = firstSampleDisk(disks, diskOrder);
+	const rxBytesPerSec = value("net.rx_bytes_per_sec");
+	const txBytesPerSec = value("net.tx_bytes_per_sec");
+	return {
+		at: new Date(latest.slotStartMs).toISOString(),
+		up: value("up") ?? 1,
+		...(cpu === undefined ? {} : { cpu }),
+		...(memUsed === undefined ? {} : { memUsed }),
+		...(memUsedBytes === undefined ? {} : { memUsedBytes }),
+		...(total === undefined ? {} : { memTotalBytes: total }),
+		...(uptimeSec === undefined ? {} : { uptimeSec }),
+		...(disk === undefined ? {} : { disk }),
+		...(rxBytesPerSec === undefined ? {} : { rxBytesPerSec }),
+		...(txBytesPerSec === undefined ? {} : { txBytesPerSec }),
+		stale: Date.now() - latest.slotStartMs > 3 * intervalMs,
+	};
 }

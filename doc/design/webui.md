@@ -318,17 +318,104 @@ the API directly, since their reader is already signed in.
 ### Node pages
 
 The node list folds enrollment and reachability into one status: pending approval, connected or
-offline for a crha node, and active for an SSH node, which has no standing connection.
+offline for a crha node, and active for an SSH node, which has no standing connection. The tone follows
+both parts: an active crha node is green only while it is connected and red while it is offline, a
+pending node is amber, and an SSH node is green because it connects per task.
+
+The node list opens in a card view, with a **Cards** / **Table** toggle in its header; the choice is
+remembered in the browser (`crh.nodes.view`). Both views show the same nodes in the same name order the
+list query returns, since neither can sort by a column. A card is one responsive grid cell (one column on
+mobile, two from `md`, three from `xl` and four from `2xl`): the node's name link and SSH badge on the
+left, the clock, trust, metrics-failure and update markers before the status badge and that group
+right-aligned at the end of the name row, then the node groups and the same approve/reject actions as
+the table row. A narrow card wraps the status group onto its own line instead of squeezing the name,
+which truncates. Below the header are the CPU, memory and disk usage bars, each with a fixed label
+column and a bar that fills the width left over, with the used and total bytes and the disk's filesystem
+name only in each row's tooltip; then uptime when the node is online and reports it, otherwise last
+seen; then the current traffic period's totals. The card does not show live traffic; the node page's
+Overview summary keeps it. A figure the sample lacks shows "–" and a stale sample dims the figures, as in the
+table. The whole card opens the node page, by click or Enter/Space; its links and action buttons keep
+their own behaviour. The table keeps a **Metrics** column with the compact CPU and memory figures.
+
+The card's bottom row, below a separator, is the node's user remark ([Data model](data-model.md#nodes)):
+one line, truncated with the whole text in its tooltip. An administrator clicks it to edit it in place,
+in a single-line input of the same size: Enter or leaving the input saves a changed remark, Escape
+cancels, a save in progress keeps the input so nothing jumps, and a failed save keeps editing with the
+error briefly inline. The remark is trimmed, at most 50 Unicode code points (an emoji counts once) on a
+single line without control characters, and an empty remark clears it. An empty remark is a muted
+"Click to edit remark" placeholder for an administrator and nothing at all for anyone else, who reads a
+set remark without an editor. The remark is not audited state a node reports; it is an administrator's
+own annotation.
+
+An optional emoji sits immediately left of the name, with a small gap, in the node list's table name cell,
+the card's name link, the node page heading, the node group list and the node group page heading. It is
+rendered `aria-hidden`, so the accessible name stays the entity's name, and nothing is rendered when it is
+null. On the node page and the node group page an administrator opens the picker by clicking the glyph,
+or by the small smiley-plus button (its tooltip and accessible name are "Set emoji") while the emoji is
+empty. The picker is a lazy chunk holding frimousse: it loads only when a picker is first opened, so
+frimousse never joins the main bundle. It has a search field, a "Remove emoji" action while one is set, works in dark
+mode through the same tokens as the other popovers and is keyboard-navigable (the search field takes
+focus, arrows and Enter move and select, Escape closes). Selecting saves through
+`PUT /api/nodes/{id}/emoji` or `PUT /api/node-groups/{id}/emoji`; a member sees the emoji only. The emoji
+data is crhs's own copy under `emojibase/` in the WebUI build (the `en` and `zh` data and message files
+frimousse requests), and frimousse's `emojibaseUrl` points at the base path plus `emojibase`; the WebUI
+never calls the CDN, which keeps an offline crhs working.
 
 The node list also shows each node's CPU and memory from its latest [metrics](metrics.md#reading)
-sample. A **Metrics** tab on the node page charts CPU, load, memory, filesystems, network and
-availability over 1 hour, 24 hours, 7 days, 30 days or 365 days; a series that stopped is drawn up to
-its last value, with its last-seen time.
+sample, its usage bars green below 60 %, amber from there and red from 80 %. Beside the status it marks a
+node whose metrics collection is failing, but only while the node is online (an offline node already says
+so), and a crha node whose release is older than crhs's own with **Update available**; the details of the
+failure and the update notice are on the node page.
 
-The node page's overview has what is used day to day, the platform line included, with trust warnings
-at the top: each has its own border and icon, so the list has no heading. A **Technical details** tab
-shows the facts, fully, and the last trust report the node sent ([Privilege](privilege.md#trust-cache))
-with the `aliases` line for `privileged.toml`: they are for diagnosis. Each trust entry is named by
+The node page's **Overview** shows five summary cards from the newest sample, directly below the
+label/value list and above the access grants: uptime, CPU usage, memory usage, the first filesystem's
+disk usage and the live network rates. The three usage cards use the node list's thresholds, and a
+figure without data shows "–" while the card stays. The first filesystem is the one the latest sample
+reported first: crhs keeps that report order in memory only, so after a restart the WebUI falls back to
+`root`, then the alphabetically first filesystem; the disk card names it only in its tooltip, never as
+visible text. The live traffic card shows the newest received and transmitted rate, each after its
+arrow, and keeps the per-second unit in its accessible label instead of the plain byte count.
+
+Below the summary, the Overview repeats the Metrics tab's CPU and memory chart cards in the same
+two-column grid: the same components, the same expand button and zoom dialog, the Metrics tab's default
+1-hour window without a range picker, and the same 30 s refresh while the page is visible. Both places
+use one query key per range, so switching between the Overview and the Metrics tab with the same range
+reuses the cached read instead of fetching twice. A node with no host metrics (no sample, collection
+off, or pending approval) gets neither the summary nor the charts on the Overview; the Metrics tab keeps
+its own empty states.
+
+The **Metrics** tab starts with the range presets 1 hour, 24 hours, 7 days, 30 days and 365 days and
+shows when it last read. The window slides with a 30 s refresh while the tab is visible. The cards are
+CPU (its bucket minimum and maximum as a band), load, memory (used, cached and free, bounded by the
+window's memory total), swap (used, bounded by the swap total and omitted at zero), every filesystem's
+used bytes in one chart, and the network rates across the full row with the traffic totals in its
+footer. A chart card without data shows an empty state, and clicking a card title opens the same loaded
+data in a dialog with a dataZoom slider, without a read; the network footer has no chart of its own, so
+its title does not open the dialog.
+
+The traffic totals are the footer of the Network card, below its chart and separated by a border: the
+received and transmitted total, when the period started, when it resets and that it resets every 30 days,
+laid out on one line that wraps its groups. A node with a traffic period but no network series still gets
+the Network card, holding only that footer and no empty chart. Times there are the browser's, always
+followed by the zone's own abbreviation or offset ("UTC+8", "SGT", "EST"), never a generic "your
+timezone"; the **Set next reset** dialog reads a local `datetime-local` value and converts it to the UTC
+instant the API takes. Administrators get **Reset now** and **Set next reset** in that footer.
+
+Availability is a status-page strip of daily bars over 30, 90 or 365 days built from the level-4 `up`
+buckets (count-weighted when the window has more days than bars, grey without data), not a chart.
+
+The node page's overview has what is used day to day, the platform line included, with a failing metrics
+collection and the trust warnings at the top: each has its own border and icon, so the list has no
+heading. Its label/value list is one column on narrow screens and two from `lg`, pairing a label with its
+value in each column as the rows flow. It keeps the platform, node groups, user remark, the crha client's
+version, self-upgrade, last seen, key fingerprint, clock and node id. Transport is not repeated there
+(the heading's **SSH** badge names it), and neither are the hostname, privileged mode and upgrade log:
+those sit at the top of the **Technical details** tab, which then shows the facts, fully, and the last
+trust report the node sent ([Privilege](privilege.md#trust-cache)) with the `aliases` line for
+`privileged.toml`: they are for diagnosis. A user remark set on the card appears in the overview as a
+read-only **User remark** row. The heading carries the **SSH** badge immediately after the node name
+for an SSH node, and the status line keeps the status, the clock warning and **Update available** when
+the node's crha is older than crhs's release. Each trust entry is named by
 what identifies its key: an SSHSIG key by its fingerprint, a Passkey by its credential id in base64url
 as `privileged.toml` writes it. A Passkey's RP ID and origins are verification constraints shared by
 every Passkey of the site, so they appear with the entry's rules. The report is the node's own view;

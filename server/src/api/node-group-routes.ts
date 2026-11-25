@@ -1,4 +1,6 @@
 import {
+	EmojiBodySchema,
+	ErrorResponseSchema,
 	IdParamSchema,
 	NodeGroupListQuerySchema,
 	NodeGroupListResponseSchema,
@@ -15,6 +17,7 @@ import {
 	getNodeGroup,
 	queryNodeGroups,
 	renameNodeGroup,
+	setNodeGroupEmoji,
 	setNodeGroupMembers,
 } from "../cluster/node-groups.ts";
 import { visibleNodeIds } from "../cluster/nodes.ts";
@@ -67,6 +70,24 @@ const deleteRoute = defineRoute({
 	middleware: [requireAdmin],
 	request: { params: IdParamSchema },
 	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
+
+const emojiRoute = defineRoute({
+	method: "put",
+	path: "/node-groups/{id}/emoji",
+	tags: TAGS,
+	summary: "Set or clear a node group's emoji (administrators)",
+	description:
+		'Exactly one emoji is accepted: a flag, a skin tone, a ZWJ sequence or a keycap; null or an empty string clears it (doc/design/webui.md "Node pages").',
+	agent: "deny", // a stored administrator annotation, not cluster state an agent reasons about
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema, body: { required: true, ...json(EmojiBodySchema) } },
+	responses: {
+		200: { description: "The node group with its new emoji", ...json(NodeGroupResponseSchema) },
+		400: { description: "The value is not exactly one emoji", ...json(ErrorResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		404: { description: "No such node group", ...json(ErrorResponseSchema) },
+	},
 });
 
 const membersRoute = defineRoute({
@@ -148,6 +169,22 @@ export function nodeGroupRoutes(db: Db) {
 			detail: { name: before.name, member_ids: before.memberIds },
 		});
 		return c.json({ ok: true as const }, 200);
+	});
+
+	app.openapi(emojiRoute, async (c) => {
+		const user = c.get("user");
+		const { id } = c.req.valid("param");
+		const before = await getNodeGroup(db, id);
+		if (!before) throw new NotFoundError("no such node group");
+		const { emoji } = c.req.valid("json");
+		const group = await setNodeGroupEmoji(db, id, emoji);
+		void c.get("audit").record({
+			actor: userActor(user),
+			action: "node_group.emoji_set",
+			target: { type: "node_group", id },
+			detail: { previous: before.emoji, emoji: group.emoji },
+		});
+		return c.json({ group }, 200);
 	});
 
 	app.openapi(membersRoute, async (c) => {

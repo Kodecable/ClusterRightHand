@@ -11,10 +11,17 @@ import {
 } from "./status";
 
 describe("nodeStatusTone", () => {
-	test("maps node states", () => {
+	test("maps node states and reachability", () => {
+		// A crha node that is not connected is a problem, not a green active node.
+		expect(nodeStatusTone("active", true)).toBe("ok");
+		expect(nodeStatusTone("active", false)).toBe("danger");
+		// An unknown connection (an SSH node connects per task) stays ok, as does the default.
+		expect(nodeStatusTone("active", null)).toBe("ok");
 		expect(nodeStatusTone("active")).toBe("ok");
 		expect(nodeStatusTone("pending")).toBe("warn");
 		expect(nodeStatusTone("other")).toBe("muted");
+		// Reachability does not change a state that is not active.
+		expect(nodeStatusTone("pending", false)).toBe("warn");
 	});
 });
 

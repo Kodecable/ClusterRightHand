@@ -22,6 +22,8 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { ImageCache } from "../library/image-cache.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
+import type { LatestMetrics } from "../metrics/collector.ts";
+import type { MetricsStore } from "../metrics/store.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
@@ -162,6 +164,18 @@ export interface AppOptions extends AuthRoutesOptions {
 	scheduler?: Scheduler;
 	/** The terminal subsystem behind the Terminals page and the agent tools (doc/design/pty.md). */
 	terminals?: TerminalService;
+	/** The host metrics store behind the node metrics API and the node_metrics tool (doc/design/metrics.md). */
+	metricsStore?: MetricsStore;
+	/** Alias of `metricsStore` for callers that already name the store `metrics`, as `main.ts` does. */
+	metrics?: MetricsStore;
+	/** The collector's latest samples, behind the node list's CPU and memory figures. */
+	metricsCollector?: {
+		latest(nodeId: string): LatestMetrics | undefined;
+		/** Why sampling is failing, for the online node's metrics warning (doc/design/metrics.md "Collection"). */
+		metricsFailure?(nodeId: string): { reason: string; since: string } | undefined;
+		/** The filesystem report order of the latest sample, for the Metrics summary (doc/design/metrics.md "Storage"). */
+		diskOrder?(nodeId: string): string[] | undefined;
+	};
 	/** The job service shared with the agent runtime; one is made when a Cluster is present. */
 	jobs?: Jobs;
 	/** The crhs-owned extension calls the job service and MCP share; one is made when omitted. */
@@ -406,6 +420,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 				callRunner,
 				...(jobs ? { jobs } : {}),
 				...(options.imageCache ? { imageCache: options.imageCache } : {}),
+				...((options.metricsStore ?? options.metrics) ? { metrics: options.metricsStore ?? options.metrics } : {}),
 				...(options.settings ? { settings: options.settings } : {}),
 				...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
 			}),

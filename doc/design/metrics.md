@@ -187,12 +187,13 @@ that one slot's deltas and rates.
 
 ## Storage
 
-Two tables, created by a migration on SQLite and PostgreSQL:
+Two sample tables, created by a migration on SQLite and PostgreSQL; the traffic row has its own
+appended migration ([Traffic totals](#traffic-totals)):
 
 - `metric_series`: `id`, `node_id`, `name`, `kind` (`gauge` or `delta`), `first_seen_at`, `last_seen_at`;
   unique on `(node_id, name)`. Deleting a node deletes its series and their buckets. `last_seen_at` is
-  written at most once per level-2 bucket, so the WebUI can mark a stopped series without a write per
-  sample.
+  written at most once per level-2 bucket, so the WebUI can tell a series' last value from its last
+  write without a write per sample.
 - `metric_buckets`: `series_id`, `level`, `bucket_start`, `count`, `sum`, `min`, `max`, `last`; primary
   key `(series_id, level, bucket_start)`, and an index on `(level, bucket_start)` for retention. For a
   delta, `sum` is the total and `min`/`max` the smallest and largest single delta.
@@ -237,18 +238,77 @@ changes the number of pulls and each bucket's `count`, not the stored size: it i
 every level-1 bucket is filled. With every level written at
 once, 100 nodes upsert about 9,000 rows a minute in 12 transactions.
 
+## Traffic totals
+
+crhs keeps a cumulative traffic total per node beside the buckets: received and transmitted bytes since
+the current period started. The totals sum the `net.rx_bytes` / `net.tx_bytes` deltas the computation
+already produces, so they grow across a crha reconnect and a host reboot, and a counter reset never adds a
+whole interface's history. The totals are stored, not derived on read, so retention of level-4 buckets
+does not shorten them.
+
+A period is always exactly 30 days (`30 × 86,400,000` ms). crhs does no calendar or timezone math: a
+period starts at an instant, ends 30 days later, and the next period starts at that end. When an value's
+slot or a read reaches `next_reset_at`, the totals become zero, `period_start` becomes the old
+`next_reset_at` and `next_reset_at` moves one period on, repeated while the instant is still in the past.
+This is the whole rule; months, leap years and local time never enter the server.
+
+`node_traffic` holds one row per node:
+
+| Column | Meaning |
+|---|---|
+| `node_id` | Primary key; references `nodes.id`, deleted with the node |
+| `period_start` | ISO 8601 UTC start of the current period |
+| `next_reset_at` | ISO 8601 UTC end of the current period |
+| `rx_bytes`, `tx_bytes` | Cumulative received and transmitted bytes, floating point like bucket statistics |
+
+The metrics flush adds each buffered sample's deltas to the row inside the same transaction as its bucket
+upserts, with one multi-row statement per batch, and the row is created at the first value's slot when the
+node has none. A sweep of nodes deleted since they were recorded skips their traffic too. A read rolls an
+expired period lazily, so a node that sent nothing for weeks still shows the period that contains now.
+Only the moment of accumulation changes totals; nothing else writes them.
+
+The API reads and changes a period:
+
+- `GET /api/nodes/{id}/metrics` returns `traffic` (or null before the first value) and, while the
+  collector remembers it, `diskOrder` for the first-filesystem summary card.
+- `POST /api/nodes/{id}/traffic/reset` is "reset now": totals to zero, `period_start` = now,
+  `next_reset_at` = now + 30 days.
+- `PUT /api/nodes/{id}/traffic/next-reset` with `{ nextResetAt }` sets the current period's end, keeping
+  its start and totals; the normal 30-day cycle continues from the new end. The instant must be in the
+  future and at most 30 days away; a node without a row gets one starting now with zero totals.
+
+Both mutations are administrator-only, hidden nodes answer 404 and other members 403, and both are
+audited (`node.traffic_reset`, `node.traffic_next_reset_set`). All instants in the API are UTC ISO 8601;
+the WebUI is the only place that turns them into the browser's local time and names the zone.
+
 ## Reading
 
 - **API.** `GET /api/nodes/:id/metrics?series=…&from=…&to=…` returns the buckets of the coarsest level
   whose retention covers `from` and whose bucket gives at least 200 points in the range, or a level the
-  caller names. Users see the metrics of the nodes they have node access to; administrators see every
-  node's.
-- **Latest sample.** crhs keeps each node's latest sample in memory, and the node list returns its CPU
-  and memory figures and time from there, without reading buckets. After a restart a node has none until
-  its first sample.
-- **WebUI.** The node page shows CPU, load, memory, filesystems, network and availability charts for
-  1 hour, 24 hours, 7 days, 30 days or 365 days, and the node list a small CPU and memory figure from the
-  latest sample. A series that stopped is drawn up to its last value, with its last-seen time.
+  caller names. The response also carries the node's traffic period and, when the collector still knows
+  it, the report order of its filesystems. Users see the metrics of the nodes they have node access to;
+  administrators see every node's.
+- **Latest sample.** crhs keeps each node's latest sample in memory, and the node list and node detail
+  return its CPU and memory figures, used and total memory, uptime, first filesystem and live network
+  rates from there, without reading buckets. The first filesystem is the first one the collector remembers
+  reporting that has both values, else `root`, else the alphabetically first complete one; each new field
+  is absent when the sample lacks the value, because a missing value is not zero. After a restart a node
+  has none until its first sample.
+- **List traffic.** The node list also carries each listed node's current traffic period. All the node
+  ids are read in one statement per chunk of 500, and an expired period is rolled in memory only: the
+  answer shows zero totals for the period that contains now, and the stored row is not written until the
+  next sample or an administrator's reset or next-reset change. The node detail uses the same read for
+  one id.
+- **WebUI.** The node page summarises the newest sample in five cards: uptime, CPU usage, memory usage,
+  the first reported filesystem's usage and the traffic total. The three usage cards share the node
+  list's thresholds (amber from 60 %, red from 80 %), a figure without data shows "–", and the traffic
+  card carries **Reset now** and **Set next reset** for administrators. Below the cards the tab charts
+  CPU (with its bucket minimum and maximum), load, memory, swap, every filesystem and the network rates
+  for 1 hour, 24 hours, 7 days, 30 days or 365 days; the window slides with a 30 s refresh while the tab
+  is visible and a card title opens the loaded data in a zoomable dialog. Availability is a daily strip
+  over 30, 90 or 365 days from the level-4 `up` buckets. The node list shows a small CPU and memory
+  figure from the latest sample, and marks a node whose sampling is failing (while it is online) or whose
+  crha release is older than crhs's own.
 - **Agent tool.** `node_metrics(node, series, range)` returns, per series, the minimum, average, maximum
   and last value over the range and at most 60 points. It reads stored data, so like `node_info` it
   needs node access and no rule decision.
@@ -275,9 +335,10 @@ and crhs refuses an answer beyond them as malformed. These also bound a node's s
 
 - [Protocol](protocol.md): minor 2 and the optional `metrics.collect` command.
 - [Execution plane](execution.md): the SSH metrics script on the pooled connection.
-- [Data model](data-model.md): `metric_series`, `metric_buckets` and their retention.
+- [Data model](data-model.md): `metric_series`, `metric_buckets`, `node_traffic` and their retention.
 - [Agent runtime](agent-runtime.md): `node_metrics`.
-- [Access control](access-control.md): metrics follow node access.
+- [Access control](access-control.md): metrics follow node access; resetting a traffic period is
+  administrator-only.
 - [WebUI](webui.md): the node page charts and the node list figures.
 - [Architecture](architecture.md): metrics leave the "not implemented" list; monitoring and alerting
   stay.

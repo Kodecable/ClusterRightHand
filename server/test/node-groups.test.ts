@@ -117,7 +117,7 @@ describe("node groups", () => {
 
 		const withMembers = await setNodeGroupMembers(db, group.id, [a, b, a]);
 		expect(withMembers.memberIds.sort()).toEqual([a, b].sort());
-		expect((await nodeGroupsForNodes(db, [a]))?.get(a)).toEqual([{ id: group.id, name: "Batch" }]);
+		expect((await nodeGroupsForNodes(db, [a]))?.get(a)).toEqual([{ id: group.id, name: "Batch", emoji: null }]);
 		expect((await nodeGroupIdsForNodes(db, [b])).get(b)).toEqual([group.id]);
 
 		// The node side replaces the memberships it has.

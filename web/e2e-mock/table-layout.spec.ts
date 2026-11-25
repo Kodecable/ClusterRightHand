@@ -57,6 +57,8 @@ for (const [name, path] of TABLE_PAGES) {
 		await mockApi(page, { state });
 		await login(page);
 		await page.goto(path);
+		// The node list opens in its card view; this spec checks the shared table.
+		if (path === "/nodes") await page.getByTestId("nodes-view-table").click();
 		await expectColumnsAligned(page);
 	});
 }

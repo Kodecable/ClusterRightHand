@@ -138,7 +138,7 @@ export function NodeStatusBadge({
 				? i18n._(msg`Awaiting approval`)
 				: undefined;
 	return (
-		<StatusText tone={nodeStatusTone(status)} className={className} title={title}>
+		<StatusText tone={nodeStatusTone(status, connected)} className={className} title={title}>
 			{nodeStatusLabel(i18n, status, connected)}
 		</StatusText>
 	);

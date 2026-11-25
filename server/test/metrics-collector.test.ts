@@ -703,6 +703,84 @@ describe("metrics collector", () => {
 			await store.close();
 		}
 	});
+
+	it("remembers why sampling is failing and clears it on recovery", async () => {
+		const key = generateKeyPair();
+		const node = await addNode(harness.db, "client", key.publicKey);
+		const answer = crhaAnswer();
+		await harness.collector.start();
+		const crha = await connect(harness.agents, harness.cluster, node, key, {
+			metrics: true,
+			answer: () => new Promise<MetricsSnapshot>(() => {}),
+		});
+		// The baseline never answers either; the first tick's sample runs into the slot's deadline.
+		await harness.collector.tick();
+		await harness.collector.settle();
+		expect(harness.collector.metricsFailure(node.id)).toEqual({
+			reason: "no sample by the deadline",
+			since: new Date(harness.clock.now).toISOString(),
+		});
+		expect(recordsFor(harness.store, node.id, SLOT)[0]?.values).toEqual([{ name: "up", kind: "gauge", value: 0 }]);
+
+		// The next slot answers: the failure is gone and the node's figures are back.
+		crha.peer.onRequest("metrics.collect", answer.answer);
+		const nextSlot = SLOT + INTERVAL;
+		harness.clock.now = nowWithinSlot(nextSlot);
+		await harness.collector.tick();
+		await harness.collector.settle();
+		expect(harness.collector.metricsFailure(node.id)).toBeUndefined();
+		expect(recordValue(recordsFor(harness.store, node.id, nextSlot)[0], "up")).toBe(1);
+	});
+
+	it("forgets a failure when the node is removed", async () => {
+		const key = generateKeyPair();
+		const node = await addNode(harness.db, "client", key.publicKey);
+		await harness.collector.start();
+		await connect(harness.agents, harness.cluster, node, key, {
+			metrics: true,
+			answer: () => new Promise<MetricsSnapshot>(() => {}),
+		});
+		await harness.collector.tick();
+		await harness.collector.settle();
+		expect(harness.collector.metricsFailure(node.id)).toBeDefined();
+
+		await harness.db.deleteFrom("nodes").where("id", "=", node.id).execute();
+		harness.clock.now = nowWithinSlot(SLOT + INTERVAL);
+		await harness.collector.tick();
+		expect(harness.collector.metricsFailure(node.id)).toBeUndefined();
+	});
+
+	it("remembers the filesystem order of the latest successful sample", async () => {
+		const key = generateKeyPair();
+		const node = await addNode(harness.db, "client", key.publicKey);
+		const answer = crhaAnswer();
+		const withDisks = (answer: MetricsSnapshot, names: readonly string[]): MetricsSnapshot => ({
+			...answer,
+			disks: names.map((name, index) => ({
+				kind: "ok" as const,
+				name,
+				path: `/${name}`,
+				totalBytes: 100_000n,
+				usedBytes: BigInt(10_000 * (index + 1)),
+			})),
+		});
+		let disks: string[] = ["data", "root"];
+		await harness.collector.start();
+		await connect(harness.agents, harness.cluster, node, key, {
+			metrics: true,
+			answer: () => withDisks(answer.answer(), disks),
+		});
+		await harness.collector.tick();
+		await harness.collector.settle();
+		expect(harness.collector.diskOrder(node.id)).toEqual(["data", "root"]);
+
+		// A later sample with one filesystem replaces the order rather than keeping the old one.
+		disks = ["root"];
+		harness.clock.now = nowWithinSlot(SLOT + INTERVAL);
+		await harness.collector.tick();
+		await harness.collector.settle();
+		expect(harness.collector.diskOrder(node.id)).toEqual(["root"]);
+	});
 });
 
 /**
@@ -1032,5 +1110,48 @@ describe("metrics collector: SSH sampling", () => {
 		const [record] = recordsFor(store, node.id, SLOT);
 		expect(recordValue(record, "up")).toBe(0);
 		expect(record?.values).toHaveLength(1);
+	});
+
+	it("keeps the first failure's since when a continuing failure changes its reason", async () => {
+		const node = await addNode(db, "ssh", null);
+		const baseline = new FakeSshSession();
+		hostState.queue.push(baseline);
+		await collector.start();
+		await waitFor("SSH baseline", () => baseline.execCalls >= 1);
+
+		// The first failed sample replaces a closed pooled connection once, then finds the replacement
+		// closed too.
+		const t0 = clock.now;
+		const closed = Array.from({ length: 2 }, () => {
+			const session = new FakeSshSession();
+			session.closed = true;
+			return session;
+		});
+		hostState.queue.push(...closed);
+		await collector.tick();
+		await collector.settle();
+		expect(collector.metricsFailure(node.id)).toEqual({
+			reason: "the SSH connection is still closed",
+			since: new Date(t0).toISOString(),
+		});
+
+		// The next slot fails for a different reason: the reason follows the newest failure, while
+		// since keeps the time of the first one so the warning does not reset on every retry.
+		clock.now = nowWithinSlot(SLOT + INTERVAL);
+		await collector.tick();
+		await collector.settle();
+		expect(collector.metricsFailure(node.id)).toEqual({
+			reason: "no SSH session",
+			since: new Date(t0).toISOString(),
+		});
+
+		// A successful sample clears the failure.
+		const good = new FakeSshSession();
+		hostState.queue.push(good);
+		clock.now = nowWithinSlot(SLOT + 2 * INTERVAL);
+		await collector.tick();
+		await collector.settle();
+		expect(collector.metricsFailure(node.id)).toBeUndefined();
+		expect(good.execCalls).toBe(1);
 	});
 });

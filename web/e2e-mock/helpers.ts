@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type {
 	ApiTokenView,
 	ApprovalList,
@@ -20,6 +22,7 @@ import type {
 	ModelRef,
 	NodeAccessGrant,
 	NodeGroup,
+	NodeMetricsResponse,
 	NodeTrust,
 	PtyView,
 	PublicNode,
@@ -129,6 +132,8 @@ export interface FakeState {
 	sshRoutes: Record<string, SshNodeDetails["hops"]>;
 	authorizations: AuthorizationSummary[];
 	nodeTrust: Record<string, NodeTrust>;
+	/** Stored host metrics by node id, as `GET /api/nodes/:id/metrics` returns them. */
+	nodeMetrics: Record<string, NodeMetricsResponse>;
 	/** Libraries the fake API exposes, and each library's files by its `user:…`/`user_group:…` reference. */
 	libraries: LibraryView[];
 	libraryFiles: Record<string, LibraryFile[]>;
@@ -429,6 +434,75 @@ export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 		connected: true,
 		clockWarning: null,
 		trustWarnings: [],
+		updateAvailable: false,
+		metricsWarning: null,
+		userRemark: null,
+		emoji: null,
+		traffic: null,
+		...overrides,
+	};
+}
+
+/**
+ * A node's stored host metrics for the Metrics tab: enough series for every chart, plus level-4 `up` buckets
+ * for the availability strip. The same response answers the range read and the explicit `level=4` read.
+ */
+export function nodeMetricsResponse(overrides: Partial<NodeMetricsResponse> = {}): NodeMetricsResponse {
+	const minute = 60_000;
+	const day = 24 * 60 * minute;
+	const now = Math.floor(Date.now() / minute) * minute;
+	const point = (t: number, avg: number, min = avg, max = avg) => ({
+		t,
+		count: 1,
+		avg,
+		sum: avg,
+		min,
+		max,
+		last: avg,
+	});
+	const buckets = (value: (index: number) => number) =>
+		Array.from({ length: 30 }, (_, index) => point(now - (29 - index) * minute, value(index)));
+	const lastSeenAt = new Date().toISOString();
+	const series = [
+		{
+			name: "up",
+			kind: "gauge" as const,
+			lastSeenAt,
+			buckets: Array.from({ length: 30 }, (_, index) =>
+				point(Math.floor(now / day) * day - (29 - index) * day, index === 7 ? 0.4 : 1, 0, 1),
+			).map((bucket) => ({ ...bucket, count: 1440, sum: bucket.avg * 1440 })),
+		},
+		{ name: "uptime", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 7200) },
+		{ name: "cpu.total", kind: "gauge" as const, lastSeenAt, buckets: buckets((index) => 0.1 + (index % 10) / 100) },
+		{ name: "cpu.core.0", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 0.2) },
+		{ name: "cpu.core.1", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 0.15) },
+		{ name: "load.1", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 1.2) },
+		{ name: "load.5", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 0.8) },
+		{ name: "load.15", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 0.5) },
+		{ name: "mem.total_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 8 * 1024 ** 3) },
+		{ name: "mem.available_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 3 * 1024 ** 3) },
+		{ name: "mem.cached_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 1024 ** 3) },
+		{ name: "mem.free_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 512 * 1024 ** 2) },
+		{ name: "swap.total_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 2 * 1024 ** 3) },
+		{ name: "swap.free_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 1536 * 1024 ** 2) },
+		{ name: "disk.root.used_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 20 * 1024 ** 3) },
+		{ name: "disk.root.total_bytes", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 100 * 1024 ** 3) },
+		{ name: "net.rx_bytes_per_sec", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 2048) },
+		{ name: "net.tx_bytes_per_sec", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 1024) },
+		{ name: "net.rx_bytes", kind: "delta" as const, lastSeenAt, buckets: buckets(() => 4096) },
+		{ name: "net.tx_bytes", kind: "delta" as const, lastSeenAt, buckets: buckets(() => 2048) },
+	];
+	return {
+		level: 1,
+		bucketMs: minute,
+		series,
+		diskOrder: ["root"],
+		traffic: {
+			periodStart: new Date(Date.now() - 5 * day).toISOString(),
+			nextResetAt: new Date(Date.now() + 25 * day).toISOString(),
+			rxBytes: 1234 * 1024 ** 2,
+			txBytes: 567 * 1024 ** 2,
+		},
 		...overrides,
 	};
 }
@@ -576,6 +650,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		sshRoutes: {},
 		authorizations: [],
 		nodeTrust: {},
+		nodeMetrics: {},
 		libraries: [],
 		libraryFiles: {},
 		nodeFiles: {},
@@ -635,6 +710,17 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		};
 	});
 
+	// The emoji picker loads its data from crhs itself. Serve the real emojibase-data files here so the
+	// tests never touch the network and do not depend on the build having run first.
+	await page.route("**/emojibase/**", async (route) => {
+		const url = new URL(route.request().url());
+		const at = url.pathname.indexOf("/emojibase/");
+		const file = at < 0 ? "" : url.pathname.slice(at + "/emojibase/".length);
+		if (!/^(en|zh)\/(data|messages)\.json$/.test(file)) return route.fulfill({ status: 404, body: "" });
+		const body = readFileSync(fileURLToPath(new URL(`../node_modules/emojibase-data/${file}`, import.meta.url)));
+		return route.fulfill({ status: 200, contentType: "application/json", body });
+	});
+
 	await page.route("**/api/**", async (route) => {
 		if (options.latencyMs !== undefined && options.latencyMs > 0) {
 			await new Promise((resolve) => setTimeout(resolve, options.latencyMs));
@@ -690,6 +776,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const group: NodeGroup = {
 				id: `node-group-${state.nodeGroups.length + 1}`,
 				name: (body as { name: string }).name,
+				emoji: null,
 				memberIds: [],
 			};
 			state.nodeGroups.push(group);
@@ -705,7 +792,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			for (const node of state.nodes) {
 				node.nodeGroups = state.nodeGroups
 					.filter((candidate) => candidate.memberIds.includes(node.id))
-					.map((candidate) => ({ id: candidate.id, name: candidate.name }));
+					.map((candidate) => ({ id: candidate.id, name: candidate.name, emoji: candidate.emoji }));
 			}
 			return json({ group });
 		}
@@ -856,6 +943,42 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 
 		// --- nodes ---------------------------------------------------------
+		const nodeMetricsMatch = /^\/api\/nodes\/([^/]+)\/metrics$/.exec(path);
+		if (nodeMetricsMatch && method === "GET") {
+			const id = decodeURIComponent(nodeMetricsMatch[1] as string);
+			const metrics = state.nodeMetrics[id];
+			if (!metrics) return json({ error: "no such node" }, 404);
+			return json(metrics);
+		}
+		// The traffic mutations change the stored period; the next metrics read shows it.
+		const trafficResetMatch = /^\/api\/nodes\/([^/]+)\/traffic\/reset$/.exec(path);
+		if (trafficResetMatch && method === "POST") {
+			const id = decodeURIComponent(trafficResetMatch[1] as string);
+			const metrics = state.nodeMetrics[id];
+			if (!metrics) return json({ error: "no such node" }, 404);
+			const now = Date.now();
+			metrics.traffic = {
+				periodStart: new Date(now).toISOString(),
+				nextResetAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+				rxBytes: 0,
+				txBytes: 0,
+			};
+			return json({ traffic: metrics.traffic });
+		}
+		const trafficNextResetMatch = /^\/api\/nodes\/([^/]+)\/traffic\/next-reset$/.exec(path);
+		if (trafficNextResetMatch && method === "PUT") {
+			const id = decodeURIComponent(trafficNextResetMatch[1] as string);
+			const metrics = state.nodeMetrics[id];
+			if (!metrics) return json({ error: "no such node" }, 404);
+			const nextResetAt = (body as { nextResetAt: string }).nextResetAt;
+			metrics.traffic = {
+				periodStart: metrics.traffic?.periodStart ?? new Date().toISOString(),
+				nextResetAt,
+				rxBytes: metrics.traffic?.rxBytes ?? 0,
+				txBytes: metrics.traffic?.txBytes ?? 0,
+			};
+			return json({ traffic: metrics.traffic });
+		}
 		const nodeTasksMatch = /^\/api\/nodes\/([^/]+)\/tasks$/.exec(path);
 		if (nodeTasksMatch && method === "GET") {
 			const id = decodeURIComponent(nodeTasksMatch[1] as string);
@@ -879,8 +1002,32 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				group.memberIds = group.memberIds.filter((nodeId) => nodeId !== id);
 			}
 			for (const group of chosen) group.memberIds.push(id);
-			node.nodeGroups = chosen.map((group) => ({ id: group.id, name: group.name }));
+			node.nodeGroups = chosen.map((group) => ({ id: group.id, name: group.name, emoji: group.emoji }));
 			return json({ nodeGroups: node.nodeGroups });
+		}
+		const nodeUserRemarkMatch = /^\/api\/nodes\/([^/]+)\/user-remark$/.exec(path);
+		if (nodeUserRemarkMatch && method === "PUT") {
+			const id = decodeURIComponent(nodeUserRemarkMatch[1] as string);
+			const node = state.nodes.find((candidate) => candidate.id === id);
+			if (!node) return json({ error: "no such node" }, 404);
+			node.userRemark = (body as { userRemark: string | null }).userRemark;
+			return json({ node });
+		}
+		const nodeEmojiMatch = /^\/api\/nodes\/([^/]+)\/emoji$/.exec(path);
+		if (nodeEmojiMatch && method === "PUT") {
+			const id = decodeURIComponent(nodeEmojiMatch[1] as string);
+			const node = state.nodes.find((candidate) => candidate.id === id);
+			if (!node) return json({ error: "no such node" }, 404);
+			node.emoji = (body as { emoji: string | null }).emoji;
+			return json({ node });
+		}
+		const nodeGroupEmojiMatch = /^\/api\/node-groups\/([^/]+)\/emoji$/.exec(path);
+		if (nodeGroupEmojiMatch && method === "PUT") {
+			const id = decodeURIComponent(nodeGroupEmojiMatch[1] as string);
+			const group = state.nodeGroups.find((candidate) => candidate.id === id);
+			if (!group) return json({ error: "no such node group" }, 404);
+			group.emoji = (body as { emoji: string | null }).emoji;
+			return json({ group });
 		}
 		const sshNodeTest = /^\/api\/nodes\/([^/]+)\/ssh-test$/.exec(path);
 		if (sshNodeTest && method === "POST") return json({ ok: true });

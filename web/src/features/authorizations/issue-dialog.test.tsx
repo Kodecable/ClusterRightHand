@@ -51,6 +51,8 @@ afterEach(() => {
 });
 
 describe("IssueAuthorizationDialog", () => {
+	// Typing through userEvent is slow enough to pass the default limit while the server suite runs in
+	// parallel in `pnpm test`; the assertion is unchanged.
 	test("signs the drafted payload with a Passkey and closes once it is stored", async () => {
 		const posted = mockApi();
 		const onOpenChange = vi.fn();
@@ -86,5 +88,5 @@ describe("IssueAuthorizationDialog", () => {
 		expect(startAuthentication).toHaveBeenCalledWith({
 			optionsJSON: expect.objectContaining({ rpId: "crh.example.com", challenge: "drafted-challenge" }),
 		});
-	});
+	}, 20_000);
 });

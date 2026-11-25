@@ -7,6 +7,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { CallRunner } from "../extensions/call-runner.ts";
 import type { Jobs } from "../jobs/jobs.ts";
 import type { ImageCache } from "../library/image-cache.ts";
+import type { MetricsStore } from "../metrics/store.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
@@ -20,6 +21,8 @@ export interface McpOptions {
 	audit?: Audit;
 	/** The image cache behind `view_image`; without one the tool reports that it is not configured. */
 	imageCache?: ImageCache;
+	/** The host metrics store behind `node_metrics` (doc/design/metrics.md "Reading"). */
+	metrics?: MetricsStore;
 	/** The job service behind the job tools; without one they report that they are unavailable. */
 	jobs?: Jobs;
 	/** The crhs-owned extension calls (doc/design/jobs.md "Background extension calls"). */
@@ -88,6 +91,7 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl:
 		approvalUrl: (kind, taskId) => `${id.baseUrl}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
 		taskUrl: (taskId) => `${id.baseUrl}/tasks/${taskId}`,
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
+		...(options.metrics ? { metrics: options.metrics } : {}),
 		...(options.jobs ? { jobs: options.jobs } : {}),
 		callRunner: options.callRunner,
 		...(options.settings ? { jobsMaxRunning: options.settings.current().jobs.maxRunning } : {}),

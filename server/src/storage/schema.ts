@@ -334,6 +334,14 @@ export interface NodesTable {
 	name: string;
 	/** Lowercase form of `name`; the shared node/node-group namespace compares this. Required on insert. */
 	name_key: string;
+	/**
+	 * The administrator's free-form user remark on the node, one line of at most 50 Unicode code points
+	 * (doc/design/webui.md "Node pages"); null when unset, which an empty remark also stores. A row insert
+	 * may omit it: the column is nullable.
+	 */
+	user_remark: ColumnType<string | null, string | null | undefined, string | null>;
+	/** An optional emoji shown left of the node's name (doc/design/webui.md "Node pages"); null when unset. */
+	emoji: ColumnType<string | null, string | null | undefined, string | null>;
 	transport: "client" | "ssh";
 	status: "pending" | "active";
 	/** Base64 of the node's 32-byte X25519 static key. */
@@ -394,12 +402,27 @@ export interface MetricBucketsTable {
 	last: number;
 }
 
+/**
+ * A node's cumulative traffic for its current 30-day period (doc/design/metrics.md "Traffic totals").
+ * `period_start` and `next_reset_at` are ISO 8601 instants; the fixed period means crhs never stores a
+ * timezone or does calendar math. The row is deleted with the node.
+ */
+export interface NodeTrafficTable {
+	node_id: string;
+	period_start: string;
+	next_reset_at: string;
+	rx_bytes: number;
+	tx_bytes: number;
+}
+
 export interface NodeGroupsTable {
 	id: string;
 	org_id: string;
 	name: string;
 	/** Lowercase form of `name`; unique per organization and shared with node names. */
 	name_key: string;
+	/** An optional emoji shown left of the node group's name (doc/design/webui.md "Node pages"); null when unset. */
+	emoji: ColumnType<string | null, string | null | undefined, string | null>;
 	created_at: CreatedAt;
 	updated_at: string;
 }
@@ -907,6 +930,7 @@ export interface Database {
 	nodes: NodesTable;
 	metric_series: MetricSeriesTable;
 	metric_buckets: MetricBucketsTable;
+	node_traffic: NodeTrafficTable;
 	node_groups: NodeGroupsTable;
 	node_group_members: NodeGroupMembersTable;
 	node_access_grants: NodeAccessGrantsTable;

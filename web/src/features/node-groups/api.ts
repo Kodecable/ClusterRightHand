@@ -62,6 +62,26 @@ export function useDeleteNodeGroup() {
 	});
 }
 
+/**
+ * Sets or clears a node group's emoji (doc/design/webui.md "Node pages"): administrators only. The saved
+ * emoji goes into the cached list at once; node views are invalidated because their node group refs
+ * carry the emoji too.
+ */
+export function useSetNodeGroupEmoji() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, emoji }: { id: string; emoji: string | null }) =>
+			http.put<{ group: NodeGroup }>(`/node-groups/${enc(id)}/emoji`, { emoji }).then((r) => r.group),
+		onSuccess: (group) => {
+			queryClient.setQueryData<NodeGroup[]>(nodeGroupKeys.list(), (groups) =>
+				groups?.map((candidate) => (candidate.id === group.id ? { ...candidate, emoji: group.emoji } : candidate)),
+			);
+			void queryClient.invalidateQueries({ queryKey: nodeGroupKeys.all });
+			invalidateNodeViews(queryClient);
+		},
+	});
+}
+
 export function useSetNodeGroupMembers() {
 	const queryClient = useQueryClient();
 	return useMutation({

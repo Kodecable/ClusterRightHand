@@ -4,6 +4,8 @@ import type {
 	NodeFileInfo,
 	NodeFilesResponse,
 	NodeGroupRef,
+	NodeMetricsResponse,
+	NodeTrafficResponse,
 	NodeTrust,
 	NodeUpgradeResponse,
 	PublicNode,
@@ -15,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { type FileEntry, type FileSource, previewMediaTypeOf } from "@/components/file-manager";
 import { nodeGroupKeys } from "@/features/node-groups/keys";
-import { enc, fetchBlob, http } from "@/lib/api/client";
+import { enc, fetchBlob, http, queryString } from "@/lib/api/client";
 
 export const nodeKeys = {
 	all: ["nodes"] as const,
@@ -23,8 +25,48 @@ export const nodeKeys = {
 	detail: (id: string) => ["nodes", "detail", id] as const,
 	trust: (id: string) => ["nodes", "trust", id] as const,
 	tasks: (id: string) => ["nodes", "tasks", id] as const,
+	metrics: (id: string, range: MetricsRange) => ["nodes", "metrics", id, range] as const,
+	/** Every range of a node's metrics, for a mutation that changes what they show. */
+	metricsAll: (id: string) => ["nodes", "metrics", id] as const,
+	availability: (id: string, days: number) => ["nodes", "availability", id, days] as const,
 	crhsKey: () => ["nodes", "crhs-key"] as const,
 };
+
+/** The ranges the node page offers (doc/design/webui.md "Node pages"), in milliseconds. */
+export type MetricsRange = "1h" | "24h" | "7d" | "30d" | "365d";
+
+export const METRICS_RANGE_MS: Record<MetricsRange, number> = {
+	"1h": 60 * 60 * 1000,
+	"24h": 24 * 60 * 60 * 1000,
+	"7d": 7 * 24 * 60 * 60 * 1000,
+	"30d": 30 * 24 * 60 * 60 * 1000,
+	"365d": 365 * 24 * 60 * 60 * 1000,
+};
+
+/**
+ * The series the Metrics tab asks for; `disk.*` is expanded on the server to each of the node's
+ * filesystems, so a filesystem added later needs no WebUI change.
+ */
+export const METRICS_SERIES = [
+	"up",
+	"uptime",
+	"cpu.total",
+	"cpu.core.*",
+	"load.1",
+	"load.5",
+	"load.15",
+	"mem.total_bytes",
+	"mem.available_bytes",
+	"mem.cached_bytes",
+	"swap.total_bytes",
+	"swap.free_bytes",
+	"disk.*",
+	"net.rx_bytes_per_sec",
+	"net.tx_bytes_per_sec",
+	// The cumulative deltas are not charted, but their presence says whether a traffic total exists yet.
+	"net.rx_bytes",
+	"net.tx_bytes",
+];
 
 export function useNodes() {
 	// Pending enrolments and online/offline changes show up without a refresh.
@@ -81,6 +123,79 @@ export function useNodeTasks(id: string | undefined) {
 	});
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A node's stored metrics over one range; the server picks the coarsest level that covers it. The window
+ * slides with every poll, so the request carries a fresh `to` each time. `visible` pauses the 30 s refresh
+ * while the browser tab is hidden (doc/design/webui.md "Node pages").
+ */
+export function useNodeMetrics(id: string | undefined, range: MetricsRange, visible = true) {
+	return useQuery({
+		queryKey: nodeKeys.metrics(id ?? "", range),
+		enabled: id !== undefined && id !== "",
+		queryFn: ({ signal }) => {
+			const to = Date.now();
+			const from = to - METRICS_RANGE_MS[range];
+			const query = queryString({ series: METRICS_SERIES.join(","), from, to });
+			return http.get<NodeMetricsResponse>(`/nodes/${enc(id ?? "")}/metrics${query}`, { signal });
+		},
+		// A sample arrives once per interval; the charts follow without a refresh button.
+		refetchInterval: visible ? 30_000 : false,
+		refetchIntervalInBackground: true,
+	});
+}
+
+/**
+ * A node's level-4 `up` buckets for the availability strip: one bucket per UTC day, read directly at that
+ * level because the tab's range query may choose a finer one. The strip has its own 30/90/365 day window.
+ */
+export function useNodeAvailability(id: string | undefined, days: number, enabled = true) {
+	return useQuery({
+		queryKey: nodeKeys.availability(id ?? "", days),
+		enabled: enabled && id !== undefined && id !== "",
+		queryFn: ({ signal }) => {
+			const to = Date.now();
+			const from = to - days * DAY_MS;
+			const query = queryString({ series: "up", from, to, level: "4" });
+			return http.get<NodeMetricsResponse>(`/nodes/${enc(id ?? "")}/metrics${query}`, { signal });
+		},
+		refetchInterval: enabled ? 30_000 : false,
+		refetchIntervalInBackground: true,
+	});
+}
+
+/**
+ * "Reset now" for a node's traffic totals (doc/design/metrics.md "Traffic totals"): administrators only.
+ * The metrics read is invalidated, so the summary and the period lines follow at once.
+ */
+export function useResetNodeTraffic(id: string) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: () =>
+			http.post<NodeTrafficResponse>(`/nodes/${enc(id)}/traffic/reset`).then((response) => response.traffic),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.metricsAll(id) });
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) });
+		},
+		meta: { toast: false },
+	});
+}
+
+/** Sets when a node's current traffic period ends; administrators only. */
+export function useSetNodeTrafficNextReset(id: string) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (body: { nextResetAt: string }) =>
+			http.put<NodeTrafficResponse>(`/nodes/${enc(id)}/traffic/next-reset`, body).then((response) => response.traffic),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.metricsAll(id) });
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) });
+		},
+		meta: { toast: false },
+	});
+}
+
 export function useCrhsKey() {
 	return useQuery({
 		queryKey: nodeKeys.crhsKey(),
@@ -117,6 +232,49 @@ export function useRenameNode() {
 		mutationFn: ({ id, name }: { id: string; name: string }) =>
 			http.patch<{ node: PublicNode }>(`/nodes/${enc(id)}`, { name }),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
+	});
+}
+
+/**
+ * Sets or clears a node's user remark (doc/design/webui.md "Node pages"): administrators only. The saved
+ * remark is written into the cached list at once, so the card shows it without waiting for the polling
+ * read; the detail query is invalidated for the node page's read-only row.
+ */
+export function useSetNodeUserRemark() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, userRemark }: { id: string; userRemark: string | null }) =>
+			http.put<{ node: PublicNode }>(`/nodes/${enc(id)}/user-remark`, { userRemark }).then((response) => response.node),
+		onSuccess: (node) => {
+			queryClient.setQueryData<PublicNode[]>(nodeKeys.list(), (nodes) =>
+				nodes?.map((candidate) =>
+					candidate.id === node.id ? { ...candidate, userRemark: node.userRemark } : candidate,
+				),
+			);
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+		},
+		// The user remark editor shows the failure inline and stays open.
+		meta: { toast: false },
+	});
+}
+
+/**
+ * Sets or clears a node's emoji (doc/design/webui.md "Node pages"): administrators only. The saved emoji
+ * goes into the cached list at once, like the user remark, and every node query is invalidated so the
+ * node page heading and the lists agree.
+ */
+export function useSetNodeEmoji() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, emoji }: { id: string; emoji: string | null }) =>
+			http.put<{ node: PublicNode }>(`/nodes/${enc(id)}/emoji`, { emoji }).then((response) => response.node),
+		onSuccess: (node) => {
+			queryClient.setQueryData<PublicNode[]>(nodeKeys.list(), (nodes) =>
+				nodes?.map((candidate) => (candidate.id === node.id ? { ...candidate, emoji: node.emoji } : candidate)),
+			);
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+		},
+		// The picker closes on success; a failure toasts like other one-click mutations.
 	});
 }
 

@@ -229,6 +229,10 @@ msgstr "{running, plural, one {Restarting crha ends # running task; it will end 
 msgid "{running} running"
 msgstr "{running} running"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "{seconds} seconds"
+msgstr "{seconds} seconds"
+
 #: src/features/sessions/composer-meta.tsx
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# step} other {# steps}}"
@@ -250,29 +254,46 @@ msgid "1 day"
 msgstr "1 day"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "1 hour"
 msgstr "1 hour"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "1 minute"
+msgstr "1 minute"
 
 #. placeholder {0}: decisions.length
 #: src/features/sessions/session-decisions.tsx
 msgid "1 of {0}"
 msgstr "1 of {0}"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "15 minutes"
+msgstr "15 minutes"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "24 hours"
+msgstr "24 hours"
+
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 days"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "365 days"
 msgstr "365 days"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "5 minutes"
 msgstr "5 minutes"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 msgid "7 days"
 msgstr "7 days"
 
@@ -281,6 +302,7 @@ msgid "7d"
 msgstr "7d"
 
 #: src/features/authorizations/issue-dialog.tsx
+#: src/features/nodes/node-metrics.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 days"
@@ -354,6 +376,10 @@ msgstr "A method and target prefix"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "A name is required."
+
+#: src/features/nodes/node-warnings.tsx
+msgid "A newer crha is available for this node."
+msgstr "A newer crha is available for this node."
 
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "A node can be in any number of node groups."
@@ -805,7 +831,7 @@ msgid "Approvals"
 msgstr "Approvals"
 
 #: src/components/decision/approval-panel.tsx
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/node-actions.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "Approve"
@@ -877,6 +903,26 @@ msgstr "Associate a session"
 #: src/features/terminals/pages.tsx
 msgid "Associated sessions"
 msgstr "Associated sessions"
+
+#. placeholder {0}: defaults.metrics.retention.l4
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 days, and at least as long as level 3. Default: {0}."
+msgstr "At least 10 days, and at least as long as level 3. Default: {0}."
+
+#. placeholder {0}: defaults.metrics.retention.l3
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 hours, and at least as long as level 2. Default: {0}."
+msgstr "At least 10 hours, and at least as long as level 2. Default: {0}."
+
+#. placeholder {0}: defaults.metrics.retention.l1
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 10 minutes. Default: {0}."
+msgstr "At least 10 minutes. Default: {0}."
+
+#. placeholder {0}: defaults.metrics.retention.l2
+#: src/features/system-settings/metrics-section.tsx
+msgid "At least 50 minutes, and at least as long as level 1. Default: {0}."
+msgstr "At least 50 minutes, and at least as long as level 1. Default: {0}."
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -971,10 +1017,15 @@ msgstr "Auto Review is reviewing this request"
 msgid "Auto Review is reviewing…"
 msgstr "Auto Review is reviewing…"
 
+#: src/features/nodes/node-metrics.tsx
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
 msgstr "Availability"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Availability window"
+msgstr "Availability window"
 
 #: src/features/nodes/pages.tsx
 msgid "available"
@@ -1072,6 +1123,10 @@ msgstr "Cache hit: {0} / {1}"
 msgid "Cache size on disk"
 msgstr "Cache size on disk"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Cached"
+msgstr "Cached"
+
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
 #: src/components/upload/upload-progress-dialog.tsx
@@ -1115,6 +1170,10 @@ msgstr "Cap proof of work"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Captcha"
 msgstr "Captcha"
+
+#: src/features/nodes/pages.tsx
+msgid "Cards"
+msgstr "Cards"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
@@ -1346,6 +1405,10 @@ msgstr "Claude Code on the laptop"
 msgid "Clear user filter"
 msgstr "Clear user filter"
 
+#: src/features/nodes/node-user-remark.tsx
+msgid "Click to edit remark"
+msgstr "Click to edit remark"
+
 #: src/features/nodes/pages.tsx
 msgid "Client"
 msgstr "Client"
@@ -1387,6 +1450,10 @@ msgstr "Cluster"
 #: src/features/sessions/background-bar.tsx
 msgid "Collapse the subagent's jobs"
 msgstr "Collapse the subagent's jobs"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Collect host metrics"
+msgstr "Collect host metrics"
 
 #: src/features/terminals/new-terminal-dialog.tsx
 #: src/features/terminals/pages.tsx
@@ -1600,6 +1667,10 @@ msgstr "Copy token"
 msgid "Copy trust config"
 msgstr "Copy trust config"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Cores"
+#~ msgstr "Cores"
+
 #: src/components/task-facts.tsx
 msgid "cosignature available"
 msgstr "cosignature available"
@@ -1611,6 +1682,16 @@ msgstr "cosignature unavailable"
 #: src/features/sessions/pages.tsx
 msgid "Couldn't find that message in this session."
 msgstr "Couldn't find that message in this session."
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-usage.tsx
+msgid "CPU"
+msgstr "CPU"
+
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "CPU usage"
+msgstr "CPU usage"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
@@ -1668,10 +1749,6 @@ msgstr "Credential"
 msgid "Credential — {0}"
 msgstr "Credential — {0}"
 
-#: src/features/nodes/pages.tsx
-msgid "crha client"
-msgstr "crha client"
-
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "crha enroll will ask to re-enroll; answer yes to replace this node's key."
 msgstr "crha enroll will ask to re-enroll; answer yes to replace this node's key."
@@ -1704,6 +1781,10 @@ msgstr "crhs generates an ed25519 key pair and keeps the private half. Only its 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs has no authorization signing key."
 msgstr "crhs has no authorization signing key."
+
+#: src/features/nodes/node-metrics.tsx
+msgid "crhs has not collected metrics for this node. Collection may be off, or the node may be offline or pending approval."
+msgstr "crhs has not collected metrics for this node. Collection may be off, or the node may be offline or pending approval."
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs may authorize privileged tasks on this node on its own."
@@ -1791,9 +1872,10 @@ msgstr "Default prompt"
 msgid "Default prompt and protocol"
 msgstr "Default prompt and protocol"
 
+#. placeholder {0}: defaults.metrics.enabled ? t`on` : t`off`
 #. placeholder {0}: defaults.pty.enabled ? t`on` : t`off`
 #. placeholder {0}: defaults.pty.maxPerNode
-#. placeholder {0}: defaults.pty.maxPerSession
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "Default: {0}."
 msgstr "Default: {0}."
@@ -2026,6 +2108,15 @@ msgstr "Disabled"
 msgid "Disabled channels stop polling or disconnect."
 msgstr "Disabled channels stop polling or disconnect."
 
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Disk usage"
+msgstr "Disk usage"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Disks"
+msgstr "Disks"
+
 #: src/components/status-badge.tsx
 msgid "Dispatched"
 msgstr "Dispatched"
@@ -2056,6 +2147,10 @@ msgstr "Download {0}"
 #: src/components/file-box.tsx
 msgid "Download {name}"
 msgstr "Download {name}"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Drag the slider or scroll to zoom inside the loaded range."
+msgstr "Drag the slider or scroll to zoom inside the loaded range."
 
 #: src/features/terminals/new-terminal-dialog.tsx
 msgid "e.g. top -d 5"
@@ -2206,6 +2301,10 @@ msgstr "Enter a duration of at least 1 day, or choose Keep forever."
 #: src/features/system-settings/terminals-section.tsx
 msgid "Enter a duration such as 1h or 10m."
 msgstr "Enter a duration such as 1h or 10m."
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Enter a duration such as 24h or 7d."
+msgstr "Enter a duration such as 24h or 7d."
 
 #: src/features/system-settings/general-section.tsx
 msgid "Enter a duration such as 60s or 5m."
@@ -2489,6 +2588,14 @@ msgstr "Files for new users"
 msgid "Files in {loadingLabel}"
 msgstr "Files in {loadingLabel}"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Filesystem {name}"
+#~ msgstr "Filesystem {name}"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Filesystems"
+#~ msgstr "Filesystems"
+
 #: src/features/audit/pages.tsx
 msgid "Filter"
 msgstr "Filter"
@@ -2550,6 +2657,10 @@ msgstr "Forked from <0>{0}</0>"
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "Format"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Free"
+msgstr "Free"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "From BotFather. It is encrypted with the master key and never shown again."
@@ -2654,6 +2765,10 @@ msgstr "Host — {0}"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Host fingerprint"
 msgstr "Host fingerprint"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Host metrics from every node: CPU, load, memory, swap, filesystems, network and availability. Turning collection off stops the samples; stored metrics stay until their retention removes them."
+msgstr "Host metrics from every node: CPU, load, memory, swap, filesystems, network and availability. Turning collection off stops the samples; stored metrics stay until their retention removes them."
 
 #. placeholder {0}: hops[candidate.hop]?.host
 #. placeholder {1}: hops[candidate.hop]?.port
@@ -2814,6 +2929,22 @@ msgstr "Jump {index}"
 msgid "Jump to latest"
 msgstr "Jump to latest"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-day buckets"
+msgstr "Keep 1-day buckets"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-hour buckets"
+msgstr "Keep 1-hour buckets"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 1-minute buckets"
+msgstr "Keep 1-minute buckets"
+
+#: src/features/system-settings/metrics-section.tsx
+msgid "Keep 5-minute buckets"
+msgstr "Keep 5-minute buckets"
+
 #: src/features/system-settings/retention-section.tsx
 msgid "Keep forever"
 msgstr "Keep forever"
@@ -2884,6 +3015,7 @@ msgstr "Last rejection {0} (attempt {1}): {2}"
 msgid "Last result:"
 msgstr "Last result:"
 
+#: src/features/nodes/node-card.tsx
 #: src/features/nodes/pages.tsx
 msgid "Last seen"
 msgstr "Last seen"
@@ -2997,14 +3129,35 @@ msgstr "List provider models"
 msgid "Listed directly"
 msgstr "Listed directly"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Live traffic"
+msgstr "Live traffic"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Load"
+msgstr "Load"
+
 #: src/components/data-table.tsx
 #: src/features/sessions/background-bar.tsx
 msgid "Load more"
 msgstr "Load more"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Loading availability…"
+msgstr "Loading availability…"
+
+#: src/components/emoji-picker.tsx
+msgid "Loading emoji…"
+msgstr "Loading emoji…"
+
 #: src/features/library/library-section.tsx
 msgid "Loading library…"
 msgstr "Loading library…"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/pages.tsx
+msgid "Loading metrics…"
+msgstr "Loading metrics…"
 
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "Loading models…"
@@ -3139,6 +3292,10 @@ msgstr "Medium"
 msgid "Medium risk"
 msgstr "Medium risk"
 
+#: src/features/nodes/node-usage.tsx
+msgid "Mem"
+msgstr "Mem"
+
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -3161,6 +3318,20 @@ msgstr "Members"
 msgid "Members of {0}"
 msgstr "Members of {0}"
 
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-usage.tsx
+msgid "Memory"
+msgstr "Memory"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Memory total"
+#~ msgstr "Memory total"
+
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Memory usage"
+msgstr "Memory usage"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/sessions/composer-input.tsx
 msgid "Message"
@@ -3173,6 +3344,16 @@ msgstr "Message composer"
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Method"
 msgstr "Method"
+
+#: src/features/nodes/node-warnings.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/system-settings/metrics-section.tsx
+msgid "Metrics"
+msgstr "Metrics"
+
+#: src/features/nodes/node-warnings.tsx
+msgid "Metrics collection failing"
+msgstr "Metrics collection failing"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -3274,6 +3455,10 @@ msgstr "Name"
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Name shown by the authenticator. Default: {defaultRpName}."
 msgstr "Name shown by the authenticator. Default: {defaultRpName}."
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Network"
+msgstr "Network"
 
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
@@ -3409,6 +3594,16 @@ msgstr "Next"
 msgid "Next attempt"
 msgstr "Next attempt"
 
+#. placeholder {0}: formatZonedDateTime(traffic.nextResetAt, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-traffic.tsx
+msgid "Next reset {0}"
+msgstr "Next reset {0}"
+
+#: src/features/nodes/node-traffic.tsx
+#~ msgid "Next reset {nextReset}"
+#~ msgstr "Next reset {nextReset}"
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "Next run"
@@ -3469,6 +3664,18 @@ msgstr "No chat channel is set up; ask an administrator."
 msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
 msgstr "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
 
+#: src/features/nodes/availability-strip.tsx
+msgid "No data"
+msgstr "No data"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No data in this range."
+msgstr "No data in this range."
+
+#: src/components/emoji-picker.tsx
+msgid "No emoji found"
+msgstr "No emoji found"
+
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "No events"
@@ -3501,6 +3708,10 @@ msgstr "No members"
 #: src/features/sessions/pages.tsx
 msgid "No messages yet. Start the conversation below."
 msgstr "No messages yet. Start the conversation below."
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No metrics yet"
+msgstr "No metrics yet"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "No model"
@@ -3573,6 +3784,10 @@ msgstr "No rules"
 #: src/features/schedules/run-history.tsx
 msgid "No runs yet"
 msgstr "No runs yet"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "No samples in this range"
+msgstr "No samples in this range"
 
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
@@ -3696,6 +3911,10 @@ msgstr "Node or node group"
 #: src/features/nodes/node-tasks.tsx
 msgid "Node tasks"
 msgstr "Node tasks"
+
+#: src/features/nodes/pages.tsx
+msgid "Node view"
+msgstr "Node view"
 
 #: src/features/nodes/pages.tsx
 msgid "Node views"
@@ -3837,6 +4056,7 @@ msgstr "Nothing to show."
 msgid "Now"
 msgstr "Now"
 
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "off"
 msgstr "off"
@@ -3858,6 +4078,7 @@ msgstr "OK"
 msgid "Old text"
 msgstr "Old text"
 
+#: src/features/system-settings/metrics-section.tsx
 #: src/features/system-settings/terminals-section.tsx
 msgid "on"
 msgstr "on"
@@ -3905,6 +4126,10 @@ msgstr "Only on failure"
 msgid "Only on success"
 msgstr "Only on success"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Only reachability is recorded for this node. Host metrics are unavailable: collection may be off, the node may be pending, or its crha may be too old to report them."
+msgstr "Only reachability is recorded for this node. Host metrics are unavailable: collection may be off, the node may be pending, or its crha may be too old to report them."
+
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
 msgstr "Only targets without an existing grant are listed."
@@ -3933,6 +4158,10 @@ msgstr "Open a terminal on a crha node to run an interactive shell."
 #: src/components/task-facts.tsx
 msgid "Open approval page"
 msgstr "Open approval page"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Open large chart"
+msgstr "Open large chart"
 
 #: src/features/library/library-section.tsx
 msgid "Open library"
@@ -4382,11 +4611,23 @@ msgstr "Reason"
 msgid "Reason (optional)"
 msgstr "Reason (optional)"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Received"
+msgstr "Received"
+
 #. placeholder {0}: result.size
 #. placeholder {1}: result.sha256
 #: src/components/task-result.tsx
 msgid "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
 msgstr "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
+
+#: src/features/nodes/node-traffic.tsx
+msgid "Received {receivedRate}, sent {sentRate}"
+msgstr "Received {receivedRate}, sent {sentRate}"
+
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Received and transmitted totals go to zero, and a new 30-day period starts now."
+msgstr "Received and transmitted totals go to zero, and a new 30-day period starts now."
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -4429,7 +4670,7 @@ msgstr "Register SSH key"
 #: src/components/decision/approval-panel.tsx
 #: src/components/decision/reject.tsx
 #: src/components/decision/signature-panel.tsx
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/node-actions.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
 msgstr "Reject"
@@ -4508,6 +4749,10 @@ msgstr "Remove access for {name}?"
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access to {target} for {grantee}"
 msgstr "Remove access to {target} for {grantee}"
+
+#: src/components/emoji-picker.tsx
+msgid "Remove emoji"
+msgstr "Remove emoji"
 
 #. placeholder {0}: row.original.name
 #: src/features/users/pages.tsx
@@ -4658,6 +4903,11 @@ msgstr "Require approval"
 msgid "Required for the new base URL"
 msgstr "Required for the new base URL"
 
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Reset now"
+msgstr "Reset now"
+
 #: src/features/users/pages.tsx
 msgid "Reset password"
 msgstr "Reset password"
@@ -4666,6 +4916,15 @@ msgstr "Reset password"
 #: src/features/users/reset-password-dialog.tsx
 msgid "Reset the password of {0}"
 msgstr "Reset the password of {0}"
+
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Reset traffic now?"
+msgstr "Reset traffic now?"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Resets every 30 days"
+msgstr "Resets every 30 days"
 
 #: src/features/terminals/pages.tsx
 msgid "Resize terminal"
@@ -4861,6 +5120,10 @@ msgstr "runs a build that is not a release"
 msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Sample interval"
+msgstr "Sample interval"
+
 #: src/components/dialogs.tsx
 #: src/features/channels/channel-dialog.tsx
 #: src/features/library/limits-dialog.tsx
@@ -4951,6 +5214,10 @@ msgstr "Scrollback per terminal"
 msgid "Search crha nodes…"
 msgstr "Search crha nodes…"
 
+#: src/components/emoji-picker.tsx
+msgid "Search emoji"
+msgstr "Search emoji"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
 msgstr "Search failed"
@@ -5018,6 +5285,10 @@ msgstr "Search users…"
 msgid "Searching"
 msgstr "Searching"
 
+#: src/features/system-settings/metrics-section.tsx
+msgid "Seconds between samples. A changed interval applies from the next tick."
+msgstr "Seconds between samples. A changed interval applies from the next tick."
+
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "Security verification failed. Try again."
@@ -5051,6 +5322,10 @@ msgstr "Send the command below to the bot in a private chat. The code works once
 #: src/features/schedules/schedule-form.tsx
 msgid "Send timing"
 msgstr "Send timing"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Sent"
+msgstr "Sent"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
@@ -5116,6 +5391,15 @@ msgstr "Sessions of {0}"
 #: src/features/settings/pages.tsx
 msgid "Set"
 msgstr "Set"
+
+#: src/components/entity-emoji.tsx
+msgid "Set emoji"
+msgstr "Set emoji"
+
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Set next reset"
+msgstr "Set next reset"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Set password"
@@ -5266,6 +5550,18 @@ msgstr "Signed. The task is sent when its node is back online."
 msgid "Signing credentials"
 msgstr "Signing credentials"
 
+#. placeholder {0}: formatDateTimeSeconds(warning.since, i18n.locale)
+#. placeholder {0}: formatZonedDateTime(traffic.periodStart, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+#: src/features/nodes/node-traffic.tsx
+#: src/features/nodes/node-warnings.tsx
+msgid "Since {0}"
+msgstr "Since {0}"
+
+#: src/features/nodes/node-traffic.tsx
+#~ msgid "Since {since}"
+#~ msgstr "Since {since}"
+
 #: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
 msgid "Size"
@@ -5341,6 +5637,7 @@ msgstr "spec {0}"
 msgid "Speed"
 msgstr "Speed"
 
+#: src/features/nodes/node-card.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
 msgid "SSH"
@@ -5476,6 +5773,10 @@ msgstr "stopped by the next run"
 msgid "Stored headers: {0}"
 msgstr "Stored headers: {0}"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Stored samples over the selected range; crhs chooses the resolution."
+#~ msgstr "Stored samples over the selected range; crhs chooses the resolution."
+
 #: src/features/jobs/job.tsx
 msgid "Subagent"
 msgstr "Subagent"
@@ -5506,6 +5807,14 @@ msgstr "Summarize older context to free up the context window. Optional instruct
 msgid "Summary"
 msgstr "Summary"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Swap"
+msgstr "Swap"
+
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Swap total"
+#~ msgstr "Swap total"
+
 #: src/app/shell/user-menu.tsx
 #: src/components/request-source.tsx
 msgid "System"
@@ -5519,6 +5828,10 @@ msgstr "System prompt"
 #: src/features/system-settings/pages.tsx
 msgid "System settings"
 msgstr "System settings"
+
+#: src/features/nodes/pages.tsx
+msgid "Table"
+msgstr "Table"
 
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
@@ -5684,6 +5997,10 @@ msgstr "The connection to the terminal was lost."
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "The credential and its private key are deleted. This cannot be undone."
 
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "The current totals and the period start stay; after this time the normal 30-day cycle continues from it."
+msgstr "The current totals and the period start stay; after this time the normal 30-day cycle continues from it."
+
 #: src/features/settings/extension-settings.tsx
 msgid "The DeepSeek API base URL."
 msgstr "The DeepSeek API base URL."
@@ -5761,6 +6078,10 @@ msgstr "The new passwords do not match."
 #: src/features/node-groups/dialogs.tsx
 msgid "The node group contains exactly the nodes selected here."
 msgstr "The node group contains exactly the nodes selected here."
+
+#: src/features/nodes/node-metrics.tsx
+msgid "The node has metrics, but none fall in the selected range. Choose a longer range."
+msgstr "The node has metrics, but none fall in the selected range. Choose a longer range."
 
 #: src/lib/task-output.ts
 msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
@@ -6089,6 +6410,14 @@ msgstr "This user or user group already has access."
 msgid "Time"
 msgstr "Time"
 
+#: src/features/nodes/traffic-dialogs.tsx
+msgid "Time ({zone})"
+msgstr "Time ({zone})"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Time range"
+msgstr "Time range"
+
 #: src/features/system-settings/attachments-section.tsx
 msgid "Time to live"
 msgstr "Time to live"
@@ -6171,6 +6500,10 @@ msgstr "Tools"
 msgid "Tools of {0}"
 msgstr "Tools of {0}"
 
+#: src/features/nodes/node-metrics.tsx
+msgid "Total"
+msgstr "Total"
+
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
@@ -6189,9 +6522,9 @@ msgstr "Total size for new users"
 msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
 msgstr "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
 
-#: src/features/nodes/pages.tsx
-msgid "Transport"
-msgstr "Transport"
+#: src/features/nodes/node-card.tsx
+msgid "Total traffic"
+msgstr "Total traffic"
 
 #: src/features/schedules/run-history.tsx
 msgid "Triggered for"
@@ -6279,11 +6612,24 @@ msgstr "Unprivileged identity"
 msgid "Unread"
 msgstr "Unread"
 
+#: src/features/nodes/node-metrics.tsx
+#~ msgid "Up"
+#~ msgstr "Up"
+
+#: src/features/nodes/node-warnings.tsx
+msgid "Update available"
+msgstr "Update available"
+
 #: src/components/file-manager/file-list.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "Updated"
+
+#. placeholder {0}: formatShortDateTime(metrics.dataUpdatedAt, i18n.locale)
+#: src/features/nodes/node-metrics.tsx
+msgid "Updated {0}"
+msgstr "Updated {0}"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Upgrade"
@@ -6325,6 +6671,11 @@ msgstr "Uploading"
 msgid "Uploading files"
 msgstr "Uploading files"
 
+#: src/features/nodes/node-card.tsx
+#: src/features/nodes/node-metrics.tsx
+msgid "Uptime"
+msgstr "Uptime"
+
 #: src/features/settings/extension-dialog.tsx
 msgid "URL"
 msgstr "URL"
@@ -6365,6 +6716,10 @@ msgstr "Use the session's model"
 #: src/features/terminals/pages.tsx
 msgid "Use window size"
 msgstr "Use window size"
+
+#: src/features/nodes/node-metrics.tsx
+msgid "Used"
+msgstr "Used"
 
 #. placeholder {0}: formatNumber(status.remaining, i18n.locale)
 #: src/lib/quota.ts
@@ -6472,6 +6827,11 @@ msgstr "User groups of {0}"
 msgid "User or user group"
 msgstr "User or user group"
 
+#: src/features/nodes/node-user-remark.tsx
+#: src/features/nodes/pages.tsx
+msgid "User remark"
+msgstr "User remark"
+
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "User signing credentials"
 msgstr "User signing credentials"
@@ -6494,6 +6854,10 @@ msgstr "Username header"
 #: src/features/users/pages.tsx
 msgid "Users"
 msgstr "Users"
+
+#: src/features/nodes/availability-strip.tsx
+msgid "UTC"
+msgstr "UTC"
 
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Valid for"

@@ -36,6 +36,7 @@ before the image push.
 | Cluster core, tasks, SSH, agent runtime | Also `pnpm test:e2e` |
 | Privilege or the privileged daemon | Also `CRH_TEST_PODMAN=1 pnpm test:system` |
 | WebUI | The web unit tests, `pnpm test:ui` and the mock suite |
+| Metrics collection, API or charts | The server metrics and API tests, the catalog test, and the web node tests |
 | Before a release | Everything, both performance suites, and a manual pass on a demo cluster |
 
 `pnpm test` does not include the end-to-end, system, mock or performance suites.

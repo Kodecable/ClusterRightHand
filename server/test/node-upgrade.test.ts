@@ -3,7 +3,7 @@
  * upgraded by architecture and why the others are skipped.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compareVersions, planUpgrade, upgradeSpec } from "../src/cluster/node-upgrade.ts";
+import { compareVersions, crhaUpdateAvailable, planUpgrade, upgradeSpec } from "../src/cluster/node-upgrade.ts";
 import { getNode, type NodeRow } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -30,6 +30,23 @@ describe("compareVersions", () => {
 		}
 		expect(compareVersions("1.3.0", "1.3.0")).toBe(0);
 		expect(() => compareVersions("dev", "1.0.0")).toThrow();
+	});
+});
+
+describe("crhaUpdateAvailable", () => {
+	it("marks only a crha node whose release is older than crhs's release", () => {
+		expect(crhaUpdateAvailable("client", "1.4.0", "1.5.0")).toBe(true);
+		expect(crhaUpdateAvailable("client", "1.4.0-rc.1", "1.4.0")).toBe(true);
+		expect(crhaUpdateAvailable("client", "1.5.0", "1.5.0")).toBe(false);
+		expect(crhaUpdateAvailable("client", "1.6.0", "1.5.0")).toBe(false);
+	});
+
+	it("shows nothing when either side is not a release, or the node has no crha", () => {
+		expect(crhaUpdateAvailable("client", "1.4.0+20260101", "1.5.0")).toBe(false);
+		expect(crhaUpdateAvailable("client", "dev", "1.5.0")).toBe(false);
+		expect(crhaUpdateAvailable("client", "1.4.0", "dev")).toBe(false);
+		expect(crhaUpdateAvailable("client", null, "1.5.0")).toBe(false);
+		expect(crhaUpdateAvailable("ssh", "1.4.0", "1.5.0")).toBe(false);
 	});
 });
 
