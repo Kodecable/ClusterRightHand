@@ -21,7 +21,7 @@ export function NodeLastSeen({ lastSeenAt, connected }: { lastSeenAt: DateInput;
 	if (Number.isNaN(date.getTime())) return <span className={DATE_TIME_CLASS}>{t`Now`}</span>;
 	const iso = date.toISOString();
 	return (
-		<time dateTime={iso} title={t`Connected since ${formatDateTimeSeconds(iso, locale)}`} className={DATE_TIME_CLASS}>
+		<time dateTime={iso} title={t`Online since ${formatDateTimeSeconds(iso, locale)}`} className={DATE_TIME_CLASS}>
 			{t`Now`}
 		</time>
 	);

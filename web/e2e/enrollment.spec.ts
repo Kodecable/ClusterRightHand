@@ -63,7 +63,7 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await expect(card).not.toContainText("Pending", { timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(true);
-	await expect(card.getByText("Connected")).toBeVisible({
+	await expect(card.getByText("Online")).toBeVisible({
 		timeout: 20_000,
 	});
 

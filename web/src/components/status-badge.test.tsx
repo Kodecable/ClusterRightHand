@@ -47,7 +47,7 @@ describe("status family mappings", () => {
 		expect(screen.getByText("Pending approval")).toHaveAttribute("data-tone", "warn");
 		// Reachability is merged into the same pill instead of a second badge.
 		rerender(<NodeStatusBadge status="active" connected />);
-		expect(screen.getByText("Connected")).toHaveAttribute("data-tone", "ok");
+		expect(screen.getByText("Online")).toHaveAttribute("data-tone", "ok");
 		rerender(<NodeStatusBadge status="active" connected={false} />);
 		const offline = screen.getByText("Offline");
 		expect(offline).toHaveAttribute("data-tone", "danger");

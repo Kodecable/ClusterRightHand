@@ -1525,7 +1525,6 @@ msgstr "Connect a Streamable HTTP MCP server to give sessions external tools."
 msgid "Connect Claude Code with:"
 msgstr "Connect Claude Code with:"
 
-#: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 msgid "Connected"
@@ -1533,8 +1532,8 @@ msgstr "Connected"
 
 #. placeholder {0}: formatDateTimeSeconds(iso, locale)
 #: src/features/nodes/node-last-seen.tsx
-msgid "Connected since {0}"
-msgstr "Connected since {0}"
+#~ msgid "Connected since {0}"
+#~ msgstr "Connected since {0}"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
@@ -4100,9 +4099,15 @@ msgstr "One file for new groups"
 msgid "One file for new users"
 msgstr "One file for new users"
 
+#: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
 msgid "Online"
 msgstr "Online"
+
+#. placeholder {0}: formatDateTimeSeconds(iso, locale)
+#: src/features/nodes/node-last-seen.tsx
+msgid "Online since {0}"
+msgstr "Online since {0}"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -6573,6 +6578,11 @@ msgstr "Type keywords separated by spaces"
 #: src/features/settings/extensions.tsx
 msgid "Unavailable"
 msgstr "Unavailable"
+
+#. placeholder {0}: selfUpgrade.reasons.map((reason) => selfUpgradeReasonText(i18n, reason)).join("; ")
+#: src/features/nodes/pages.tsx
+msgid "unavailable ({0})"
+msgstr "unavailable ({0})"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"

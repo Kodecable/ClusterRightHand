@@ -137,6 +137,9 @@ function mockFetch(
 				new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 			if (path === "/api/me") return json({ user });
 			if (path === "/api/nodes") return json({ nodes });
+			if (path === "/api/nodes/upgrade" && method === "POST") {
+				return json({ version: "1.3.0", upgrades: [], skipped: [], taskGroups: [] });
+			}
 			const remark = /^\/api\/nodes\/([^/]+)\/user-remark$/.exec(path);
 			if (remark && method === "PUT") {
 				const id = decodeURIComponent(remark[1] ?? "");
@@ -334,7 +337,7 @@ describe("NodesPage card view", () => {
 		const card = await screen.findByTestId("node-card");
 		expect(within(card).getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
 		expect(within(card).getByRole("link", { name: "web" })).toHaveAttribute("href", "/node-groups/group-1");
-		expect(card).toHaveTextContent("Connected");
+		expect(card).toHaveTextContent("Online");
 
 		const figures = within(card).getByTestId("node-card-figures");
 		expect(figures).toHaveTextContent("CPU usage42%");
@@ -511,7 +514,7 @@ describe("NodesPage card layout", () => {
 			"clock",
 			"Trust",
 			"Metrics",
-			"Connected",
+			"Online",
 		]);
 		expect(group).toHaveClass("ml-auto");
 		expect(group.parentElement?.lastElementChild).toBe(group);
@@ -754,6 +757,19 @@ describe("NodesPage administrator actions", () => {
 		expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
 	});
 
+	test("an administrator upgrades every node from the list header", async () => {
+		const { calls } = await renderPage(ADMIN, [node()]);
+		const upgrade = await screen.findByTestId("upgrade-all-nodes");
+		fireEvent.click(upgrade);
+		expect(await screen.findByTestId("upgrade-crha-dialog")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(calls.find((call) => call.url === "/api/nodes/upgrade")?.body).toEqual({
+				targets: ["_all"],
+				dryRun: true,
+			}),
+		);
+	});
+
 	test("the node table fits the standard list width without horizontal scrolling", async () => {
 		await renderTablePage(ADMIN, [node()]);
 		await screen.findByRole("link", { name: "worker-01" });
@@ -771,6 +787,7 @@ describe("NodesPage administrator actions", () => {
 		expect(await screen.findByRole("link", { name: "worker-01" })).toBeInTheDocument();
 		expect(screen.queryByTestId("add-node")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("add-ssh-node")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("upgrade-all-nodes")).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
 	});
@@ -790,7 +807,7 @@ describe("NodesPage administrator actions", () => {
 		const lastSeenAt = "2026-01-01T00:00:05.000Z";
 		await renderPage(ADMIN, [node({ lastSeenAt, connected: true })]);
 		const now = await screen.findByText("Now");
-		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
+		expect(now).toHaveAttribute("title", `Online since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
 	});
 
 	test("a disconnected node's Last seen is the relative time", async () => {
@@ -901,6 +918,20 @@ describe("NodeDetailPage", () => {
 		expect(hostname.nextElementSibling).toHaveTextContent("edge.example");
 		expect(screen.getByText("Privileged mode").nextElementSibling).toHaveTextContent("ignored (SSH)");
 		expect(screen.queryByText("Upgrade log")).not.toBeInTheDocument();
+	});
+
+	test("puts an unavailable self-upgrade's reasons in parentheses", async () => {
+		await renderDetail(MEMBER, [
+			node({
+				facts: {
+					selfUpgrade: { available: false, reasons: ["package_managed", "not_systemd"] },
+				},
+			}),
+		]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.getByText("Self-upgrade").nextElementSibling).toHaveTextContent(
+			"unavailable (installed by the package manager (upgrade it with apt or dnf); not started by systemd)",
+		);
 	});
 
 	test("the overview facts use one column on narrow screens and two from lg", async () => {
@@ -1030,7 +1061,7 @@ describe("NodeDetailPage", () => {
 		);
 
 		const now = await screen.findByText("Now");
-		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
+		expect(now).toHaveAttribute("title", `Online since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
 	});
 });
 

@@ -402,7 +402,7 @@ describe("NodeMetrics", () => {
 		expect(valueAt(lines[0], base - MINUTE)).toBe(750);
 		expect(valueAt(lines[1], base - MINUTE)).toBe(100);
 		expect(valueAt(lines[2], base - MINUTE)).toBe(50);
-		expect(((chart?.option.yAxis ?? {}) as { max?: number }).max).toBe(1280);
+		expect(((chart?.option.yAxis ?? {}) as { max?: number }).max).toBe(1200);
 	});
 
 	test("hides swap when its total is zero", async () => {
@@ -431,7 +431,7 @@ describe("NodeMetrics", () => {
 		await screen.findByTestId("metrics-plot-disks");
 		const chart = charts.at(-1);
 		expect(lineOptions(chart).map((line) => line.name)).toEqual(["beta", "alpha"]);
-		expect(((chart?.option.yAxis ?? {}) as { max?: number }).max).toBe(2048);
+		expect(((chart?.option.yAxis ?? {}) as { max?: number }).max).toBe(2000);
 		expect(screen.queryByTestId("metrics-chart-disk-alpha")).not.toBeInTheDocument();
 	});
 

@@ -161,16 +161,23 @@ export function formatTokens(value: number, locale: string): string {
 }
 
 /**
- * A duration in seconds/milliseconds as "1h 02m" or "2m 00s", the one shape every surface uses (doc/design/webui.md
- * "Shared components"): a task's max TTL, a measured clock offset, an ETA and a turn's duration all read it.
+ * A duration in seconds/milliseconds as "1y 35d", "3d 04h", "5h 07m" or "3m 09s", the one shape every surface
+ * uses (doc/design/webui.md "Shared components"): a task's max TTL, a measured clock offset, an ETA and a
+ * turn's duration all read it. A day is 24 hours and a year is 365 days, with no calendar and no time zone,
+ * and at most two units are shown; only h/m/s keep the two-digit padding as the second unit.
  */
 export function formatDuration(ms: number, locale: string): string {
 	if (!Number.isFinite(ms) || ms < 0) return "–";
 	const totalSeconds = Math.round(ms / 1000);
-	const hours = Math.floor(totalSeconds / 3600);
-	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const yearSeconds = 365 * 86_400;
+	const years = Math.floor(totalSeconds / yearSeconds);
+	const days = Math.floor((totalSeconds % yearSeconds) / 86_400);
+	const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+	const minutes = Math.floor((totalSeconds % 3_600) / 60);
 	const seconds = totalSeconds % 60;
 	const number = (n: number) => formatNumber(n, locale, { minimumIntegerDigits: 2, useGrouping: false });
+	if (years > 0) return `${formatNumber(years, locale)}y ${formatNumber(days, locale)}d`;
+	if (days > 0) return `${formatNumber(days, locale)}d ${number(hours)}h`;
 	if (hours > 0) return `${formatNumber(hours, locale)}h ${number(minutes)}m`;
 	if (minutes > 0) return `${formatNumber(minutes, locale)}m ${number(seconds)}s`;
 	return `${formatNumber(seconds, locale)}s`;

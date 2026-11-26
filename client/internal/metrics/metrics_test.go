@@ -335,6 +335,105 @@ func TestInterfaceErrorsAndLimit(t *testing.T) {
 	}
 }
 
+func TestTargets(t *testing.T) {
+	t.Run("configured disks and interfaces", func(t *testing.T) {
+		targets := New(Options{
+			Root:       t.TempDir(),
+			Disks:      []Disk{{Name: "root", Path: "/"}, {Name: "data", Path: "/srv"}},
+			Interfaces: []string{"eth0", "ens3"},
+		}).Targets()
+		wantDisks := []Disk{{Name: "root", Path: "/"}, {Name: "data", Path: "/srv"}}
+		if !reflect.DeepEqual(targets.Disks, wantDisks) {
+			t.Fatalf("disks = %#v, want %#v", targets.Disks, wantDisks)
+		}
+		wantInterfaces := []string{"eth0", "ens3"}
+		if !reflect.DeepEqual(targets.Interfaces, wantInterfaces) {
+			t.Fatalf("interfaces = %#v, want %#v", targets.Interfaces, wantInterfaces)
+		}
+		if targets.AutoInterfaces || targets.AutoNow != nil || targets.AutoErr != nil {
+			t.Fatalf("configured interfaces reported as auto: %#v", targets)
+		}
+		if len(targets.Dropped) != 0 {
+			t.Fatalf("dropped = %#v, want none", targets.Dropped)
+		}
+	})
+
+	t.Run("invalid names and the limits are reported", func(t *testing.T) {
+		disks := []Disk{{Name: "bad name", Path: "/bad"}}
+		for i := 0; i <= protocol.MaxMetricsDisks; i++ {
+			disks = append(disks, Disk{Name: fmt.Sprintf("d%d", i), Path: "/"})
+		}
+		interfaces := []string{"bad/name"}
+		for i := 0; i <= protocol.MaxMetricsInterfaces; i++ {
+			interfaces = append(interfaces, fmt.Sprintf("eth%d", i))
+		}
+		targets := New(Options{Root: t.TempDir(), Disks: disks, Interfaces: interfaces}).Targets()
+
+		if len(targets.Disks) != protocol.MaxMetricsDisks {
+			t.Fatalf("%d disks kept, want %d", len(targets.Disks), protocol.MaxMetricsDisks)
+		}
+		if first, last := targets.Disks[0].Name, targets.Disks[len(targets.Disks)-1].Name; first != "d0" ||
+			last != fmt.Sprintf("d%d", protocol.MaxMetricsDisks-1) {
+			t.Fatalf("kept disks run %q..%q", first, last)
+		}
+		// The invalid first name is inside New's truncation but is not kept, so the kept list is one
+		// name shorter than the limit.
+		if len(targets.Interfaces) != protocol.MaxMetricsInterfaces-1 {
+			t.Fatalf("%d interfaces kept, want %d", len(targets.Interfaces), protocol.MaxMetricsInterfaces-1)
+		}
+		if first, last := targets.Interfaces[0], targets.Interfaces[len(targets.Interfaces)-1]; first != "eth0" ||
+			last != fmt.Sprintf("eth%d", protocol.MaxMetricsInterfaces-2) {
+			t.Fatalf("kept interfaces run %q..%q", first, last)
+		}
+
+		dropped := map[string]string{}
+		for _, target := range targets.Dropped {
+			dropped[target.Kind+" "+target.Name] = target.Reason
+		}
+		wantDropped := map[string]string{
+			"disk bad name":      "invalid name",
+			"disk d64":           fmt.Sprintf("over the limit of %d", protocol.MaxMetricsDisks),
+			"interface bad/name": "invalid name",
+			"interface eth255":   fmt.Sprintf("over the limit of %d", protocol.MaxMetricsInterfaces),
+			"interface eth256":   fmt.Sprintf("over the limit of %d", protocol.MaxMetricsInterfaces),
+		}
+		if !reflect.DeepEqual(dropped, wantDropped) {
+			t.Fatalf("dropped = %#v, want %#v", dropped, wantDropped)
+		}
+	})
+
+	t.Run("auto selection reads proc/net/dev", func(t *testing.T) {
+		root := t.TempDir()
+		writeFiles(t, root, map[string]string{"proc/net/dev": netDevHeader +
+			devLine("lo", 1, 1, 1, 1) + "\n" +
+			devLine("docker0", 1, 1, 1, 1) + "\n" +
+			devLine("eth0", 1, 1, 1, 1) + "\n" +
+			devLine("bad name", 1, 1, 1, 1) + "\n" +
+			devLine("wlan0", 1, 1, 1, 1) + "\n"})
+		targets := New(Options{Root: root}).Targets()
+		if !targets.AutoInterfaces || targets.AutoErr != nil {
+			t.Fatalf("auto = %v, err = %v", targets.AutoInterfaces, targets.AutoErr)
+		}
+		want := []string{"eth0", "wlan0"}
+		if !reflect.DeepEqual(targets.AutoNow, want) {
+			t.Fatalf("auto now = %#v, want %#v", targets.AutoNow, want)
+		}
+		if targets.Interfaces != nil || len(targets.Dropped) != 0 {
+			t.Fatalf("auto targets = %#v", targets)
+		}
+	})
+
+	t.Run("auto selection reports an unreadable file", func(t *testing.T) {
+		targets := New(Options{Root: t.TempDir()}).Targets()
+		if !targets.AutoInterfaces || targets.AutoErr == nil {
+			t.Fatalf("auto = %v, err = %v, want an error", targets.AutoInterfaces, targets.AutoErr)
+		}
+		if len(targets.AutoNow) != 0 {
+			t.Fatalf("auto now = %#v, want none", targets.AutoNow)
+		}
+	})
+}
+
 func TestDisks(t *testing.T) {
 	timeout := "statfs timed out"
 	t.Run("success and error", func(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -144,6 +145,14 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 	go reloadOnHangup(ctx, log, configPath, &cfg, a)
 
 	log.Info("crha starting", "server", first.AgentURL(), "identity", identity.Fingerprint(key.Public))
+	// What the metrics configuration resolves to, so a misconfiguration is visible in the log
+	// (doc/design/metrics.md "crha nodes").
+	targets := collector.Targets()
+	log.Info("metrics targets", "disks", metricsDisksLog(targets.Disks),
+		"interfaces", metricsInterfacesLog(targets))
+	if len(targets.Dropped) > 0 {
+		log.Warn("metrics targets dropped", "dropped", metricsDroppedLog(targets.Dropped))
+	}
 	if err := a.Run(ctx); err != nil {
 		// agent.ErrNodeRejected carries crhs's reason. main prints the returned error to stderr and
 		// exits non-zero; other errors are only reported when we were not shutting down.
@@ -250,6 +259,46 @@ func metricsDisks(disks []config.MetricsDisk) []metrics.Disk {
 		out[i] = metrics.Disk{Name: disk.Name, Path: disk.Path}
 	}
 	return out
+}
+
+// metricsDisksLog renders the collected filesystems as "root=/ data=/srv" for the startup log.
+func metricsDisksLog(disks []metrics.Disk) string {
+	if len(disks) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(disks))
+	for i, disk := range disks {
+		parts[i] = disk.Name + "=" + disk.Path
+	}
+	return strings.Join(parts, " ")
+}
+
+// metricsInterfacesLog renders the collected interfaces for the startup log: the configured names, or
+// the automatic selection with what it picks now.
+func metricsInterfacesLog(targets metrics.Targets) string {
+	if !targets.AutoInterfaces {
+		if len(targets.Interfaces) == 0 {
+			return "none"
+		}
+		return strings.Join(targets.Interfaces, ",")
+	}
+	now := "none"
+	if len(targets.AutoNow) > 0 {
+		now = strings.Join(targets.AutoNow, ",")
+	}
+	if targets.AutoErr != nil {
+		return fmt.Sprintf("auto (now: %s, error: %v)", now, targets.AutoErr)
+	}
+	return fmt.Sprintf("auto (now: %s)", now)
+}
+
+// metricsDroppedLog names every configuration entry the collector discarded and why.
+func metricsDroppedLog(dropped []metrics.DroppedTarget) string {
+	parts := make([]string, len(dropped))
+	for i, target := range dropped {
+		parts[i] = fmt.Sprintf("%s %q: %s", target.Kind, target.Name, target.Reason)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // nativeEscalation returns the argv prefix that runs the native helper as the target identity. The

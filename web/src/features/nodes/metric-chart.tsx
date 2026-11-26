@@ -42,7 +42,7 @@ export interface MetricChartProps {
 	height?: number;
 	/** Draw min/max as a band behind the first line, e.g. CPU's bucket minimum and maximum. */
 	band?: MetricChartBand;
-	/** A fixed y-axis upper bound, e.g. 100 for CPU or a filesystem's capacity. */
+	/** A fixed y-axis upper bound, e.g. 100 for CPU or a filesystem's capacity; used exactly as the axis max. */
 	yMax?: number;
 	/** Draw the dataZoom slider; the zoom dialog uses it, the inline card does not. */
 	zoom?: boolean;
@@ -216,18 +216,14 @@ export function MetricChart({
 		const seriesColors = series.map((_entry, index) => colors[index % colors.length] as string);
 		const bandColor = seriesColors[0] ?? FALLBACK_COLORS[0] ?? "#2554d6";
 		const format = (value: number | null | undefined) => formatMetricValue(value, unit, locale);
-		// A byte axis with a capacity uses binary nice ticks instead of an even split of the raw capacity.
-		// Without a capacity, the largest plotted value bounds the axis the same way, so rates read
-		// 0/128/256/384/512 KiB/s rather than ECharts's decimal steps. An empty or all-zero chart has no
-		// positive value to round, and keeps letting ECharts choose its own ticks.
+		// Without a capacity, a byte axis is bounded by the largest plotted value, so rates read
+		// 0/128/256/384/512 KiB/s rather than ECharts's decimal steps. A capacity given as `yMax` is used
+		// exactly as the axis max, and ECharts chooses the ticks: rounding it up would hide the real
+		// headroom. An empty or all-zero chart has no positive value to round, and keeps letting ECharts
+		// choose its own ticks.
 		const byteUnit = unit === "bytes" || unit === "bytesPerSec";
 		const dataMax = byteUnit && yMax === undefined ? seriesDataMax(series) : undefined;
-		const byteAxis =
-			byteUnit && yMax !== undefined
-				? niceByteAxisMax(yMax)
-				: dataMax !== undefined && dataMax > 0
-					? niceByteAxisMax(dataMax)
-					: undefined;
+		const byteAxis = dataMax !== undefined && dataMax > 0 ? niceByteAxisMax(dataMax) : undefined;
 
 		const tooltip = (raw: unknown): string => {
 			const entries = (Array.isArray(raw) ? raw : [raw]) as TooltipEntry[];

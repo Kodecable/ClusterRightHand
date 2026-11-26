@@ -58,11 +58,42 @@ type Collector struct {
 	root       string
 	disks      []Disk
 	interfaces []string
+	dropped    []DroppedTarget // configured entries New discarded as invalid or over a limit
 	statfs     func(path string) (Stats, error)
 	timeout    time.Duration
 
 	mu       sync.Mutex
 	inflight map[string]time.Time // path -> when its blocked statfs call started
+}
+
+// Targets is what a collector will collect, so crha can log it at startup and a misconfiguration is
+// visible in the log (doc/design/metrics.md "crha nodes").
+type Targets struct {
+	// Disks are the filesystems that are collected, in configuration order.
+	Disks []Disk
+	// Interfaces are the configured interface names that are collected, in order. It is empty when
+	// the configuration is empty (see AutoInterfaces) or keeps no valid name.
+	Interfaces []string
+	// AutoInterfaces reports whether interfaces are selected from /proc/net/dev because none are
+	// configured.
+	AutoInterfaces bool
+	// AutoNow are the interface names the automatic selection picks right now, in /proc/net/dev
+	// order. It is empty when AutoInterfaces is false or the file could not be read.
+	AutoNow []string
+	// AutoErr is why /proc/net/dev could not be read for AutoNow; nil otherwise.
+	AutoErr error
+	// Dropped lists the configured disks and interface names that are not collected.
+	Dropped []DroppedTarget
+}
+
+// DroppedTarget is one configured disk or interface that a collector does not collect.
+type DroppedTarget struct {
+	// Kind is "disk" or "interface".
+	Kind string
+	// Name is the configured name.
+	Name string
+	// Reason is why it is not collected: "invalid name" or "over the limit of <n>".
+	Reason string
 }
 
 // New returns a Collector for opts.
@@ -80,28 +111,75 @@ func New(opts Options) *Collector {
 		timeout = DefaultStatfsTimeout
 	}
 	// The configuration validates disk names, but a name outside the protocol's form must never reach the
-	// wire; skip it here too (doc/design/metrics.md "Limits").
+	// wire; skip it here too (doc/design/metrics.md "Limits"). What is skipped is kept so Targets can
+	// report it at startup.
 	disks := make([]Disk, 0, len(opts.Disks))
+	var dropped []DroppedTarget
 	for _, disk := range opts.Disks {
 		if protocol.ValidMetricsDiskName(disk.Name) {
 			disks = append(disks, disk)
+		} else {
+			dropped = append(dropped, DroppedTarget{
+				Kind: "disk", Name: disk.Name, Reason: "invalid name",
+			})
 		}
 	}
 	if len(disks) > protocol.MaxMetricsDisks {
+		for _, disk := range disks[protocol.MaxMetricsDisks:] {
+			dropped = append(dropped, DroppedTarget{
+				Kind:   "disk",
+				Name:   disk.Name,
+				Reason: fmt.Sprintf("over the limit of %d", protocol.MaxMetricsDisks),
+			})
+		}
 		disks = disks[:protocol.MaxMetricsDisks]
 	}
 	interfaces := opts.Interfaces
 	if len(interfaces) > protocol.MaxMetricsInterfaces {
+		for _, name := range interfaces[protocol.MaxMetricsInterfaces:] {
+			dropped = append(dropped, DroppedTarget{
+				Kind:   "interface",
+				Name:   name,
+				Reason: fmt.Sprintf("over the limit of %d", protocol.MaxMetricsInterfaces),
+			})
+		}
 		interfaces = interfaces[:protocol.MaxMetricsInterfaces]
 	}
 	return &Collector{
 		root:       root,
 		disks:      disks,
 		interfaces: interfaces,
+		dropped:    dropped,
 		statfs:     statfs,
 		timeout:    timeout,
 		inflight:   make(map[string]time.Time),
 	}
+}
+
+// Targets reports what the collector collects: the kept disks and configured interfaces, or the
+// automatic interface selection and what it would pick now. Configured interface names outside the
+// protocol's form are reported as dropped, as Collect skips them. It is for the startup log, before
+// sampling starts.
+func (c *Collector) Targets() Targets {
+	targets := Targets{
+		Disks:   append([]Disk(nil), c.disks...),
+		Dropped: append([]DroppedTarget(nil), c.dropped...),
+	}
+	if len(c.interfaces) == 0 {
+		targets.AutoInterfaces = true
+		targets.AutoNow, targets.AutoErr = c.autoInterfaceNames()
+		return targets
+	}
+	for _, name := range c.interfaces {
+		if !protocol.ValidMetricsInterfaceName(name) {
+			targets.Dropped = append(targets.Dropped, DroppedTarget{
+				Kind: "interface", Name: name, Reason: "invalid name",
+			})
+			continue
+		}
+		targets.Interfaces = append(targets.Interfaces, name)
+	}
+	return targets
 }
 
 // Collect reads every configured source once and returns the metrics.collect body. A source that

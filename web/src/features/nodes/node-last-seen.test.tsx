@@ -14,7 +14,7 @@ describe("NodeLastSeen", () => {
 	test("a connected node shows Now, with the connection time as its title", () => {
 		renderWithI18n(<NodeLastSeen lastSeenAt={LAST_SEEN} connected />);
 		const now = screen.getByText("Now");
-		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(LAST_SEEN, "en")}`);
+		expect(now).toHaveAttribute("title", `Online since ${formatDateTimeSeconds(LAST_SEEN, "en")}`);
 		// The value keeps the cell's normal typography, like RelativeTime.
 		expect(now).not.toHaveClass("text-muted-foreground");
 		expect(now).not.toHaveClass("text-xs");

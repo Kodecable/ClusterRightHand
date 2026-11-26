@@ -34,14 +34,27 @@ describe("formatTokens", () => {
 describe("formatDuration", () => {
 	test("writes the one duration shape", () => {
 		expect(formatDuration(0, "en")).toBe("0s");
+		expect(formatDuration(9_000, "en")).toBe("9s");
 		expect(formatDuration(12_500, "en")).toBe("13s");
+		expect(formatDuration(189_000, "en")).toBe("3m 09s");
 		expect(formatDuration(120_000, "en")).toBe("2m 00s");
 		expect(formatDuration(90_000, "en")).toBe("1m 30s");
 		expect(formatDuration(3_723_000, "en")).toBe("1h 02m");
+		expect(formatDuration(18_420_000, "en")).toBe("5h 07m");
+		expect(formatDuration(273_600_000, "en")).toBe("3d 04h");
+		expect(formatDuration(400 * 86_400_000, "en")).toBe("1y 35d");
+	});
+
+	test("puts the day and year boundaries at fixed lengths", () => {
+		expect(formatDuration(23 * 3_600_000 + 59 * 60_000, "en")).toBe("23h 59m");
+		expect(formatDuration(24 * 3_600_000, "en")).toBe("1d 00h");
+		expect(formatDuration(364 * 86_400_000 + 23 * 3_600_000, "en")).toBe("364d 23h");
+		expect(formatDuration(365 * 86_400_000, "en")).toBe("1y 0d");
 	});
 
 	test("keeps the active locale's digits and reads an invalid value as a dash", () => {
 		expect(formatDuration(90_000, "zh-CN")).toBe("1m 30s");
+		expect(formatDuration(24 * 3_600_000, "zh-CN")).toBe("1d 00h");
 		expect(formatDuration(Number.NaN, "en")).toBe("–");
 		expect(formatDuration(-1, "en")).toBe("–");
 	});

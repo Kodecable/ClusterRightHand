@@ -173,19 +173,20 @@ describe("MetricChart", () => {
 		expect(yAxis.interval).toBeUndefined();
 	});
 
-	test("gives a byte axis with a capacity nice binary ticks", () => {
+	test("uses a capacity as the exact byte axis max and leaves the ticks to ECharts", () => {
+		const capacity = 27.9 * GIB;
 		renderWithI18n(
 			<MetricChart
 				times={[1, 2]}
 				series={[{ label: "Used", values: [GIB, 2 * GIB] }]}
 				unit="bytes"
 				label="Disks"
-				yMax={31 * GIB}
+				yMax={capacity}
 			/>,
 		);
 		const yAxis = (charts.at(-1) as FakeChart).option.yAxis as { max?: number; interval?: number };
-		expect(yAxis.max).toBe(32 * GIB);
-		expect(yAxis.interval).toBe(8 * GIB);
+		expect(yAxis.max).toBe(capacity);
+		expect(yAxis.interval).toBeUndefined();
 	});
 
 	test("gives a byte axis without a capacity ticks from the data's own maximum", () => {
@@ -215,19 +216,21 @@ describe("MetricChart", () => {
 		expect(bytesAxis).toMatchObject(niceByteAxisMax(3 * GIB));
 	});
 
-	test("keeps a given capacity's axis on a rate chart", () => {
+	test("keeps a given capacity's exact axis on a rate chart", () => {
+		const capacity = 1.5 * MIB;
 		renderWithI18n(
 			<MetricChart
 				times={[1, 2]}
 				series={[{ label: "Received", values: [300 * KIB, 512 * KIB] }]}
 				unit="bytesPerSec"
 				label="Network"
-				yMax={MIB}
+				yMax={capacity}
 			/>,
 		);
 		const yAxis = (charts.at(-1) as FakeChart).option.yAxis as { max?: number; interval?: number };
-		// The capacity (and not the 512 KiB the data reaches) bounds the axis.
-		expect(yAxis).toMatchObject({ max: MIB, interval: 256 * KIB });
+		// The capacity (and not the 512 KiB the data reaches) bounds the axis, without a rounded max.
+		expect(yAxis.max).toBe(capacity);
+		expect(yAxis.interval).toBeUndefined();
 	});
 
 	test("leaves an empty or all-zero byte chart to ECharts", () => {

@@ -108,7 +108,7 @@ const NODE_LABELS: Record<string, MessageDescriptor> = {
 /** The node's status label: enrollment plus reachability, when it is known. */
 export function nodeStatusLabel(i18n: I18n, status: string, connected: boolean | null = null): string {
 	if (status === "active" && connected !== null) {
-		return connected ? i18n._(msg`Connected`) : i18n._(msg`Offline`);
+		return connected ? i18n._(msg`Online`) : i18n._(msg`Offline`);
 	}
 	return statusLabel(i18n, NODE_LABELS, status);
 }

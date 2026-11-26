@@ -1525,7 +1525,6 @@ msgstr "连接一个 Streamable HTTP MCP 服务器，为会话提供外部工具
 msgid "Connect Claude Code with:"
 msgstr "用以下命令连接 Claude Code："
 
-#: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 msgid "Connected"
@@ -1533,8 +1532,8 @@ msgstr "已连接"
 
 #. placeholder {0}: formatDateTimeSeconds(iso, locale)
 #: src/features/nodes/node-last-seen.tsx
-msgid "Connected since {0}"
-msgstr "自 {0} 起连接"
+#~ msgid "Connected since {0}"
+#~ msgstr "自 {0} 起连接"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
@@ -4100,9 +4099,15 @@ msgstr "新用户组的单个文件"
 msgid "One file for new users"
 msgstr "新用户的单个文件"
 
+#: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
 msgid "Online"
 msgstr "在线"
+
+#. placeholder {0}: formatDateTimeSeconds(iso, locale)
+#: src/features/nodes/node-last-seen.tsx
+msgid "Online since {0}"
+msgstr "自 {0} 起在线"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -6573,6 +6578,11 @@ msgstr "输入用空格分隔的关键词"
 #: src/features/settings/extensions.tsx
 msgid "Unavailable"
 msgstr "不可用"
+
+#. placeholder {0}: selfUpgrade.reasons.map((reason) => selfUpgradeReasonText(i18n, reason)).join("; ")
+#: src/features/nodes/pages.tsx
+msgid "unavailable ({0})"
+msgstr "不可用（{0}）"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"

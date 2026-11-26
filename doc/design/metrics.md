@@ -138,6 +138,9 @@ knows which of its mounts and links matter:
 - Both keys are optional and new; a `crha.toml` without them keeps working
   ([Compatibility](compatibility.md#configuration)).
 
+crha logs the disks and interfaces it will collect when it starts, so a misconfiguration is visible in
+its log.
+
 ### SSH nodes
 
 crhs runs one fixed, read-only script on the node's pooled SSH connection

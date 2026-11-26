@@ -275,8 +275,8 @@ func (c *Collector) interfacesValue() ([]protocol.MetricsInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]protocol.MetricsInterface, 0, min(len(all), protocol.MaxMetricsInterfaces))
 	if len(c.interfaces) > 0 {
+		out := make([]protocol.MetricsInterface, 0, min(len(all), protocol.MaxMetricsInterfaces))
 		byName := make(map[string]interfaceCounters, len(all))
 		for _, entry := range all {
 			byName[entry.name] = entry
@@ -296,16 +296,47 @@ func (c *Collector) interfacesValue() ([]protocol.MetricsInterface, error) {
 		}
 		return out, nil
 	}
+	selected := selectAutoInterfaces(all)
+	out := make([]protocol.MetricsInterface, len(selected))
+	for i, entry := range selected {
+		out[i] = entry.value()
+	}
+	return out, nil
+}
+
+// selectAutoInterfaces applies the default selection to the interfaces of /proc/net/dev: the first
+// protocol.MaxMetricsInterfaces names that are neither excluded nor outside the protocol's form.
+func selectAutoInterfaces(all []interfaceCounters) []interfaceCounters {
+	out := make([]interfaceCounters, 0, min(len(all), protocol.MaxMetricsInterfaces))
 	for _, entry := range all {
 		if excludedInterface(entry.name) || !protocol.ValidMetricsInterfaceName(entry.name) {
 			continue
 		}
-		out = append(out, entry.value())
+		out = append(out, entry)
 		if len(out) == protocol.MaxMetricsInterfaces {
 			break
 		}
 	}
-	return out, nil
+	return out
+}
+
+// autoInterfaceNames returns what the default selection would pick right now, for Targets. A file
+// that cannot be read is an error and no names.
+func (c *Collector) autoInterfaceNames() ([]string, error) {
+	data, err := readProc(c.root, "proc/net/dev")
+	if err != nil {
+		return nil, err
+	}
+	all, err := parseNetDev(data)
+	if err != nil {
+		return nil, err
+	}
+	selected := selectAutoInterfaces(all)
+	names := make([]string, len(selected))
+	for i, entry := range selected {
+		names[i] = entry.name
+	}
+	return names, nil
 }
 
 // parseNetDev parses the data lines of /proc/net/dev: name, then sixteen counters, of which the

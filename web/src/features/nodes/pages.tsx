@@ -116,6 +116,7 @@ export function NodesPage() {
 	const nodes = useNodes();
 	const [adding, setAdding] = useState(false);
 	const [addingSsh, setAddingSsh] = useState(false);
+	const [upgradingAll, setUpgradingAll] = useState(false);
 	const [pending, setPending] = useState<{ node: PublicNode; action: NodeDecision }>();
 	const [view, setView] = useState<NodeListView>(readNodeView);
 
@@ -227,6 +228,14 @@ export function NodesPage() {
 						<NodeViewToggle view={view} onChange={changeView} />
 						{admin && (
 							<>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={() => setUpgradingAll(true)}
+									data-testid="upgrade-all-nodes"
+								>
+									<Trans>Upgrade crha</Trans>
+								</Button>
 								<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
 									<PlusIcon />
 									<Trans>New SSH node</Trans>
@@ -266,6 +275,7 @@ export function NodesPage() {
 			)}
 			{adding && <AddNodeDialog onClose={() => setAdding(false)} />}
 			{addingSsh && <AddSshNodeDialog onClose={() => setAddingSsh(false)} />}
+			{upgradingAll && <UpgradeCrhaDialog targets={["_all"]} onClose={() => setUpgradingAll(false)} />}
 			{pending && (
 				<PendingNodeDialog
 					node={pending.node}
@@ -565,5 +575,7 @@ function selfUpgradeText(i18n: I18n, selfUpgrade: NonNullable<PublicNode["facts"
 	if (selfUpgrade.available) {
 		return selfUpgrade.arch ? i18n._(msg`available (${selfUpgrade.arch})`) : i18n._(msg`available`);
 	}
-	return selfUpgrade.reasons.map((reason) => selfUpgradeReasonText(i18n, reason)).join("; ");
+	return i18n._(
+		msg`unavailable (${selfUpgrade.reasons.map((reason) => selfUpgradeReasonText(i18n, reason)).join("; ")})`,
+	);
 }
