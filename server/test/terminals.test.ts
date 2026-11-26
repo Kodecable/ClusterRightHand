@@ -619,6 +619,8 @@ describe("terminals", () => {
 		expect(terminals.get(terminal.id)).toBeDefined();
 		await db.updateTable("sessions").set({ state: "idle" }).where("id", "=", session.id).execute();
 		await waitFor("idle close", () => terminals.get(terminal.id) === undefined);
+		// pty.close goes out over the link after the registry drops the terminal.
+		await waitFor("close sent", () => crha.ptyCloses.some((close) => close.ptyId === terminal.id));
 		expect(crha.ptyCloses.at(-1)).toMatchObject({ ptyId: terminal.id, reason: "idle" });
 	});
 
