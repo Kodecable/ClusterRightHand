@@ -469,6 +469,11 @@ terminates TLS — a reverse proxy, a CDN, a tunnel — would see plaintext and 
 | A compromised node | Sees only the tasks sent to it and cannot impersonate another node |
 | A compromised crhs | Can send ordinary commands; privilege elevation is limited by the trust configuration of the privileged mode ([Privilege and authorization](privilege.md)) |
 
+An enrollment token grants nothing by itself: the node it registers is pending, gets no task and no
+access to crhs or other nodes until an administrator approves it after comparing the key fingerprint. A
+published token costs at most the token (someone else uses it first) and a pending node to reject, so an
+agent may ask for one. A re-enroll token is different: using it replaces a live node's key at once.
+
 ### WSS and Noise
 
 - **Outer: WSS (TLS 1.3).** It hides metadata and crosses the network. `tls_verify` is `system` (the

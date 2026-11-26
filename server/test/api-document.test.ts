@@ -73,6 +73,11 @@ describe("API document", () => {
 		// Traffic totals are stored state, not a host fact: changing them is an administrator's decision.
 		expect(doc.paths?.["/api/nodes/{id}/traffic/reset"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/traffic/next-reset"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// A new-node token only registers a pending node, so issuing one is asked; a re-enroll token
+		// replaces a live node's key, and approving a node is a decision.
+		expect(doc.paths?.["/api/enrollment-tokens"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+		expect(doc.paths?.["/api/nodes/{id}/reenroll"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/nodes/{id}/approve"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		// Tasks: starting one is a tool call; reading and cancelling one stay available.
 		expect(doc.paths?.["/api/nodes/{id}/tasks"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/task-groups"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");

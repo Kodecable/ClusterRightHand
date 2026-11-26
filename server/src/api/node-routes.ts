@@ -230,7 +230,7 @@ const enrollmentTokenRoute = defineRoute({
 	path: "/enrollment-tokens",
 	tags: TAGS,
 	summary: "Issue a one-time enrollment token for a new node (administrators)",
-	agent: "deny", // a token enrolls a node: it grants infrastructure access
+	agent: "ask", // a token only registers a pending node; admission is the approval, which agents cannot give
 	middleware: [requireAdmin],
 	request: { body: { required: true, ...json(EnrollmentTokenBodySchema) } },
 	responses: {
@@ -245,7 +245,7 @@ const reenrollRoute = defineRoute({
 	path: "/nodes/{id}/reenroll",
 	tags: TAGS,
 	summary: "Issue a one-time token that replaces this node's key (administrators)",
-	agent: "deny", // replaces a node's identity
+	agent: "deny", // using the token replaces a live node's key at once, taking it offline until approval
 	request: { params: IdParamSchema },
 	responses: {
 		201: { description: "The token and its expiry", ...json(EnrollmentTokenResponseSchema) },
