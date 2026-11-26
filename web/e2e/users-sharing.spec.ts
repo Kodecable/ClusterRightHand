@@ -154,7 +154,7 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 		await login(mp, MEMBER);
 		await expect(mp.getByTestId("page-title")).toHaveText("Sessions");
 		await mp.getByTestId("nav-nodes").click();
-		await expect(mp.getByRole("row").filter({ hasText: nodeName })).toBeVisible({ timeout: 15_000 });
+		await expect(mp.getByTestId("node-card").filter({ hasText: nodeName })).toBeVisible({ timeout: 15_000 });
 	} finally {
 		await ctx.close();
 	}
