@@ -1455,7 +1455,8 @@ describe("terminals", () => {
 			});
 			expect(submitted.status).toBe(200);
 			await waitFor("opened after the signature", () => crha.ptyOpens.length === 1);
-			expect(terminals.get(id)?.state).toBe("running");
+			// The fake node records pty.open on receipt; the terminal runs once crhs has its answer.
+			await waitFor("running", () => terminals.get(id)?.state === "running");
 			const open = crha.ptyOpens[0] as unknown as PtyOpen;
 			expect(open.privileged).toBe(true);
 			expect(open.authorizations).toHaveLength(1);
