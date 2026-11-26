@@ -1,7 +1,6 @@
-import type { SigningCredentialView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { signingCredentialKeyId } from "@/lib/signing-credential-key";
-import { buildTrustConfig, toBase64url, tomlString } from "./trust";
+import { buildTrustConfig, toBase64url, tomlString } from "./trust-config.ts";
+import type { SigningCredentialView } from "./users.ts";
 
 describe("tomlString", () => {
 	test("escapes quotes and backslashes", () => {
@@ -37,11 +36,6 @@ const passkeyCredential: SigningCredentialView = {
 	rpId: "crh.example.com",
 	origins: ["https://crh.example.com"],
 };
-
-test("signingCredentialKeyId gives the SSH fingerprint or the Passkey credential id", () => {
-	expect(signingCredentialKeyId(sshCredential)).toBe("SHA256:abc");
-	expect(signingCredentialKeyId(passkeyCredential)).toBe("AAECAwQ");
-});
 
 describe("buildTrustConfig", () => {
 	test("trusts crhs alone when no signing credential is selected", () => {

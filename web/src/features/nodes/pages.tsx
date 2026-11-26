@@ -1,4 +1,4 @@
-import type { PublicNode } from "@crh/api";
+import { type PublicNode, tomlString } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -20,7 +20,6 @@ import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { tomlString } from "@/features/signing-credentials/trust";
 import { useAuth } from "@/lib/session";
 import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";

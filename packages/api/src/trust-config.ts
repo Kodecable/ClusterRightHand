@@ -1,4 +1,9 @@
-import type { SigningCredentialView } from "@crh/api";
+/**
+ * The `[[trust]]` entries for a node's privileged.toml, shared by crhs's trust-config route and the
+ * WebUI's Generate trust config dialog (doc/design/privilege.md "Trust configuration"). Only public keys
+ * go in: crhs's newest signing key plus, when the user picks any, their own signing credentials.
+ */
+import type { SigningCredentialView } from "./users.ts";
 
 /** A TOML basic string; the only characters that need escaping are the quote and the backslash. */
 export function tomlString(value: string): string {

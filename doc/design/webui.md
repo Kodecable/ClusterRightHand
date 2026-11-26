@@ -422,8 +422,10 @@ what identifies its key: an SSHSIG key by its fingerprint, a Passkey by its cred
 as `privileged.toml` writes it. A Passkey's RP ID and origins are verification constraints shared by
 every Passkey of the site, so they appear with the entry's rules. The report is the node's own view;
 crhs only displays it. A **Generate trust config** dialog on the signing
-credentials page builds basic `[[trust]]` entries for a node's `privileged.toml`, which an administrator
-copies to the node: crhs cannot change what a node trusts. The measured clock offset is shown only as a
+credentials page uses the same builder as `GET /api/privilege/trust-config` to produce basic
+`[[trust]]` entries for a node's `privileged.toml`, which an administrator copies to the node: crhs
+cannot change what a node trusts. The route and the dialog read only public keys. The measured clock
+offset is shown only as a
 warning, because it is measured once per connection ([Privilege](privilege.md#clock)).
 
 Administrators can delete a node from its page after a confirmation that states the consequences for

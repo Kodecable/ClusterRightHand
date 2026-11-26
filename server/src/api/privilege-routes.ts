@@ -1,4 +1,4 @@
-import type { SigningKey } from "@crh/api";
+import { buildTrustConfig, type SigningKey } from "@crh/api";
 import {
 	CrhsKeyResponseSchema,
 	ErrorResponseSchema,
@@ -10,13 +10,16 @@ import {
 	SigningKeyDeleteConflictSchema,
 	SigningKeyDeleteQuerySchema,
 	SigningKeyListResponseSchema,
+	TrustConfigQuerySchema,
+	TrustConfigResponseSchema,
 } from "@crh/api/schemas";
 import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import { signingKeyTrust } from "../cluster/trust.ts";
 import type { AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
+import { listSigningCredentials } from "../privilege/signing-credentials.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError } from "../util/errors.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -29,9 +32,24 @@ const crhsKeyRoute = defineRoute({
 	path: "/privilege/crhs-key",
 	tags: TAGS,
 	summary: "Read crhs's newest authorization signing key and every key, for a node's trust entry",
-	agent: "deny",
+	agent: "allow", // public keys only: what a node's crhs trust entry needs
 	responses: {
 		200: { description: "The newest key and every key", ...json(CrhsKeyResponseSchema) },
+		503: { description: "crhs has no authorization signing key", ...json(ErrorResponseSchema) },
+	},
+});
+
+const trustConfigRoute = defineRoute({
+	method: "get",
+	path: "/privilege/trust-config",
+	tags: TAGS,
+	summary: "Build a node's privileged.toml trust entries from crhs's newest key and the caller's signing credentials",
+	description:
+		"Without credentials crhs may authorize privileged tasks alone; with them crhs only countersigns. Paste the entries into the node's /etc/crha/privileged.toml; editing that file is itself a privileged task.",
+	agent: "allow", // public keys only: the entries go to the node
+	request: { query: TrustConfigQuerySchema },
+	responses: {
+		200: { description: "The trust entries and the crhs key they carry", ...json(TrustConfigResponseSchema) },
 		503: { description: "crhs has no authorization signing key", ...json(ErrorResponseSchema) },
 	},
 });
@@ -101,6 +119,14 @@ function keyView(key: AuthorizationSigningKey, trustedBy: SigningKey["trustedBy"
 	};
 }
 
+/** The requested signing-credential ids; an empty entry is a malformed list. */
+function credentialIds(raw: string | undefined): string[] {
+	if (raw === undefined) return [];
+	const ids = raw.split(",").map((id) => id.trim());
+	if (ids.some((id) => id === "")) throw new UserError("credentials must be a comma-separated list of ids");
+	return [...new Set(ids)];
+}
+
 /**
  * crhs's authorization signing keys (doc/design/privilege.md "Authorization signing key"). The list and the
  * authorized_keys line only need the key set; adding and deleting are administrator-only and use the
@@ -121,6 +147,21 @@ export function privilegeRoutes(options: PrivilegeRoutesOptions) {
 			},
 			200,
 		);
+	});
+
+	/**
+	 * The same entries the WebUI's Generate trust config shows for the same selection: the newest key and
+	 * the caller's own credentials, in the order the credentials list returns them.
+	 */
+	app.openapi(trustConfigRoute, async (c) => {
+		const newest = keys?.newest;
+		if (!keys || !newest) throw new HTTPException(503, { message: "crhs has no authorization signing key" });
+		const wanted = new Set(credentialIds(c.req.valid("query").credentials));
+		const own = await listSigningCredentials(options.db, c.get("user").userId);
+		const selected = own.filter((credential) => wanted.has(credential.id));
+		// Another user's id and an unknown id are the same 404 the credential routes give.
+		if (selected.length !== wanted.size) throw new NotFoundError("no such credential");
+		return c.json({ toml: buildTrustConfig(newest.authorizedKey, selected), crhsKey: newest.authorizedKey }, 200);
 	});
 
 	/** Every key, newest first, with the nodes whose cached trust report trusts it. */

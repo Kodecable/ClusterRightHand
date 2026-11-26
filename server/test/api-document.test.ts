@@ -37,11 +37,14 @@ describe("API document", () => {
 		expect(groups?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
 		expect(doc.paths?.["/api/node-groups/{id}"]?.delete?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.components?.schemas?.NodeGroup).toBeDefined();
-		// A read is allowed, a settings mutation needs an approval and a signing credential is the owner's.
+		// A read is allowed and a settings mutation needs an approval; the signing credential list, crhs's
+		// public key and the generated trust entries carry public keys only.
 		const settings = doc.paths?.["/api/settings"];
 		expect(settings?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(settings?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
-		expect(doc.paths?.["/api/me/signing-credentials"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/me/signing-credentials"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/privilege/crhs-key"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/privilege/trust-config"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		// A user's own settings are readable; changing the new-session defaults is a guardrail.
 		expect(doc.paths?.["/api/me/settings"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/me/settings"]?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");

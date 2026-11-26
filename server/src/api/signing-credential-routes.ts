@@ -41,7 +41,7 @@ const listRoute = defineRoute({
 	path: "/me/signing-credentials",
 	tags: TAGS,
 	summary: "List the caller's own signing credentials",
-	agent: "deny",
+	agent: "allow", // the caller's own credentials, public keys only
 	responses: { 200: { description: "The caller's credentials", ...json(SigningCredentialsResponseSchema) } },
 });
 

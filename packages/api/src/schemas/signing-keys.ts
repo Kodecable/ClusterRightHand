@@ -56,3 +56,22 @@ export const SigningKeyDeleteBodySchema = z.object({ force: z.boolean().optional
 
 /** Query parameter of the signing key delete route; `force=true` overrides a remaining trust entry. */
 export const SigningKeyDeleteQuerySchema = z.object({ force: z.string().optional() });
+
+/**
+ * `GET /api/privilege/trust-config`: the entries to paste into a node's `privileged.toml` and the crhs
+ * key they carry.
+ */
+export const TrustConfigResponseSchema = z
+	.object({
+		toml: z.string().describe("The `[[trust]]` entries for the node's /etc/crha/privileged.toml."),
+		crhsKey: z.string().describe("The authorized_keys line of crhs's newest signing key."),
+	})
+	.meta({ id: "TrustConfigResponse" });
+
+/** Query parameter of `GET /api/privilege/trust-config`. */
+export const TrustConfigQuerySchema = z.object({
+	credentials: z
+		.string()
+		.optional()
+		.describe("Comma-separated ids of the caller's own signing credentials; omit to trust crhs alone."),
+});

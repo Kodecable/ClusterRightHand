@@ -1,5 +1,8 @@
+import { buildTrustConfig, type SigningCredentialView } from "@crh/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
+import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
+import { type AuthorizationSigningKeyStore, loadAuthorizationSigningKeys } from "../src/privilege/key.ts";
 import { SshRegistrationChallenges } from "../src/privilege/signing-credentials.ts";
 import { REGISTER_NAMESPACE, signSshsig, sshString } from "../src/privilege/sshsig.ts";
 import { RegistrationChallenges } from "../src/privilege/webauthn.ts";
@@ -405,5 +408,122 @@ describe("signing credentials API", () => {
 		expect(challenges.take(one.challenge)).toBeUndefined();
 		expect(challenges.take(two.challenge)).toMatchObject({ userId: "u4" });
 		expect(challenges.take(three.challenge)).toMatchObject({ userId: "u5" });
+	});
+});
+
+describe("trust config API", () => {
+	let db: Db;
+	let app: App;
+	let cookie: string;
+	let otherCookie: string;
+	let signingKeys: AuthorizationSigningKeyStore;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite");
+		const masterKey = MasterKey.generate();
+		await bindMasterKey(db, masterKey);
+		signingKeys = await loadAuthorizationSigningKeys(db, masterKey);
+		app = makeApp(db, undefined, { audit: new Audit(db), signingKeys, serverFingerprint: "test-server" });
+		await createUser(db, { username: "owner", kind: "member", password: "password-123" });
+		await createUser(db, { username: "other", kind: "member", password: "password-123" });
+		cookie = await login(app, "owner", "password-123");
+		otherCookie = await login(app, "other", "password-123");
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const newestKey = () => {
+		const key = signingKeys.newest;
+		if (!key) throw new Error("missing signing key");
+		return key;
+	};
+
+	const addCredential = async (key: ReturnType<typeof createSshKey>, name: string, withCookie = cookie) => {
+		const res = await registerSshCredential(app, withCookie, key, name);
+		expect(res.status).toBe(201);
+		return (await res.json()) as { signingCredential: { id: string; name: string } };
+	};
+
+	it("builds the entries for crhs alone without credentials", async () => {
+		const key = newestKey();
+		const res = await call(app, "/api/privilege/trust-config", { cookie });
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ toml: buildTrustConfig(key.authorizedKey, []), crhsKey: key.authorizedKey });
+	});
+
+	it("builds the entries the WebUI shows for the caller's selected credentials", async () => {
+		const key = newestKey();
+		const first = await addCredential(createSshKey("ssh-ed25519"), "laptop");
+		const second = await addCredential(createSshKey("ssh-ed25519"), "desk");
+
+		const listed = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: SigningCredentialView[];
+		};
+		// The dialog filters that list, so the same selection is in the list's order, not the query's.
+		const selected = listed.signingCredentials.filter((credential) =>
+			[first.signingCredential.id, second.signingCredential.id].includes(credential.id),
+		);
+		const res = await call(
+			app,
+			`/api/privilege/trust-config?credentials=${second.signingCredential.id},${first.signingCredential.id}`,
+			{ cookie },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { toml: string; crhsKey: string };
+		expect(body).toEqual({ toml: buildTrustConfig(key.authorizedKey, selected), crhsKey: key.authorizedKey });
+		expect(body.toml).toContain('kinds         = ["cosign"]');
+		expect(body.toml).toContain('name          = "laptop"');
+		expect(body.toml).toContain('name          = "desk"');
+	});
+
+	it("refuses another user's id and an unknown id", async () => {
+		const theirs = await addCredential(createSshKey("ssh-ed25519"), "theirs", otherCookie);
+		const foreign = await call(app, `/api/privilege/trust-config?credentials=${theirs.signingCredential.id}`, {
+			cookie,
+		});
+		expect(foreign.status).toBe(404);
+		expect(((await foreign.json()) as { error: string }).error).toMatch(/no such credential/);
+
+		const unknown = await call(app, "/api/privilege/trust-config?credentials=not-a-credential", { cookie });
+		expect(unknown.status).toBe(404);
+		expect(((await unknown.json()) as { error: string }).error).toMatch(/no such credential/);
+
+		// A selection that mixes a valid own id with a foreign one is refused as a whole.
+		const own = await addCredential(createSshKey("ssh-ed25519"), "own");
+		const mixed = await call(
+			app,
+			`/api/privilege/trust-config?credentials=${own.signingCredential.id},${theirs.signingCredential.id}`,
+			{ cookie },
+		);
+		expect(mixed.status).toBe(404);
+	});
+
+	it("leaves out the caller's credentials that were not selected", async () => {
+		const key = newestKey();
+		const picked = await addCredential(createSshKey("ssh-ed25519"), "picked");
+		await addCredential(createSshKey("ssh-ed25519"), "left-out");
+		const res = await call(app, `/api/privilege/trust-config?credentials=${picked.signingCredential.id}`, { cookie });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { toml: string };
+		const listed = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: SigningCredentialView[];
+		};
+		const view = listed.signingCredentials.filter((credential) => credential.id === picked.signingCredential.id);
+		expect(view).toHaveLength(1);
+		expect(body.toml).toBe(buildTrustConfig(key.authorizedKey, view));
+		expect(body.toml).not.toContain("left-out");
+	});
+
+	it("refuses an empty entry in the credential list", async () => {
+		const own = await addCredential(createSshKey("ssh-ed25519"), "own");
+		const res = await call(app, `/api/privilege/trust-config?credentials=${own.signingCredential.id},`, { cookie });
+		expect(res.status).toBe(400);
+	});
+
+	it("answers 503 when no signing key is configured", async () => {
+		const bare = makeApp(db);
+		expect((await call(bare, "/api/privilege/trust-config", { cookie })).status).toBe(503);
 	});
 });

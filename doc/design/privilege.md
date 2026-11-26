@@ -283,6 +283,16 @@ A node's privileged mode trusts the signers listed in `privileged.toml`
 | `user` | A user's SSH key, FIDO key or Passkey | `execute`, `require-cosign` |
 | `local` | Local uids, opening the window with `crha approve --for` | Opens the window; no task limits |
 
+`GET /api/privilege/trust-config` builds the basic entries for a node's
+`/etc/crha/privileged.toml` from crhs's newest signing key and, through the optional comma-separated
+`credentials` query parameter, the caller's own signing credentials. The WebUI's **Generate trust
+config** dialog uses the same builder in `@crh/api` over `GET /api/privilege/crhs-key` and
+`GET /api/me/signing-credentials`, so it shows the same output for the same selection. Without
+credentials the crhs entry carries `execute` and crhs may authorize alone; with them it carries
+`cosign` and crhs only countersigns. Editing that file is itself a privileged task
+([The privileged mode](#the-privileged-mode)). All three reads return public keys only, so an agent
+may call them through `api_request`.
+
 `execute` lets a signer authorize a task alone. `cosign` lets crhs confirm a user authorization that
 requires it, and `require-cosign` makes a user's authorizations need that confirmation. crhs's two
 capabilities are independent: an entry with only `cosign` means crhs can never authorize alone, and no

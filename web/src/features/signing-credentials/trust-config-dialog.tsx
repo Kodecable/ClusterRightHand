@@ -1,3 +1,4 @@
+import { buildTrustConfig } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { CodeText } from "@/components/code-text";
@@ -10,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrhsKey } from "@/features/nodes/api";
 import { useSigningCredentials } from "./api";
-import { buildTrustConfig } from "./trust";
 
 /**
  * Builds basic `[[trust]]` entries for a node's privileged.toml from crhs's signing key and, optionally,

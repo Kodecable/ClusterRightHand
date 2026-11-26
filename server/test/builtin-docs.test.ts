@@ -380,7 +380,9 @@ describe("crhs-docs extension", () => {
 			expect(users).not.toContain("POST /api/users");
 			const schemas = await callDocs("read_doc", { path: "api/schemas.md", section: "shared-api-schemas" });
 			expect(schemas).toContain("## NodeGroup");
-			expect(schemas).not.toContain("## SigningCredentialView");
+			// Only the deny route that creates a signing key uses this shape; the credential list is an allow read.
+			expect(schemas).not.toContain("## SigningKeyCreateResponse");
+			expect(schemas).toContain("## SigningCredentialView");
 		} finally {
 			await db.destroy();
 		}

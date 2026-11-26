@@ -12,6 +12,7 @@ import type {
 	SigningKeyListResponseSchema,
 	SigningKeySchema,
 	SigningKeyTrustSchema,
+	TrustConfigResponseSchema,
 } from "./schemas/signing-keys.ts";
 
 /** A crhs signing key's usable capabilities in a node's `privileged.toml` trust entry. */
@@ -37,3 +38,9 @@ export type SigningKeyCreateResponse = z.infer<typeof SigningKeyCreateResponseSc
  * nodes stand in the way.
  */
 export type SigningKeyDeleteConflict = z.infer<typeof SigningKeyDeleteConflictSchema>;
+
+/**
+ * `GET /api/privilege/trust-config`: the entries to paste into a node's `privileged.toml` and the crhs
+ * key they carry (doc/design/privilege.md "Trust configuration").
+ */
+export type TrustConfigResponse = z.infer<typeof TrustConfigResponseSchema>;
