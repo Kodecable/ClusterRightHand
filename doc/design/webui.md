@@ -587,8 +587,8 @@ the button enabled.
 
 Administrators edit the low-frequency runtime settings here (public URL, clock warning, retention,
 WebAuthn, login hashing and captcha, the real-IP header, the default library limits for new users and
-groups, the attachment inline limits and the image cache), plus crhs's authorization signing keys.
-Each settings section is its own form with its own **Save**, which patches only that
+groups, the attachment inline limits, the image cache and the job limits), plus crhs's authorization
+signing keys. Each settings section is its own form with its own **Save**, which patches only that
 section's values and stays disabled until something changed: an unrelated edit elsewhere in the page
 cannot be overwritten or submitted along with it. A save applies without a restart and is audited. The
 authorization signing keys table marks the newest key, because that is the one crhs signs with by

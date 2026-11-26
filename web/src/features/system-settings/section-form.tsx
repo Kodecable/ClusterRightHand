@@ -1,9 +1,11 @@
 import { Trans } from "@lingui/react/macro";
 import { type ReactNode, useId } from "react";
+import { type Control, type FieldPath, type FieldValues, useController } from "react-hook-form";
 import { ErrorText } from "@/components/error-state";
-import { FormActions } from "@/components/form";
+import { FieldShell, FormActions } from "@/components/form";
 import { Panel, SectionHeader } from "@/components/section";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /**
  * One saveable block of the System settings page: a titled section, its fields and
@@ -52,5 +54,45 @@ export function SettingsSection({
 				</FormActions>
 			</form>
 		</Panel>
+	);
+}
+
+/** A whole-number field kept as text while editing, so an empty box is a validation error, not 0. */
+export function NumberField<T extends FieldValues>({
+	control,
+	name,
+	label,
+	description,
+	placeholder,
+	min,
+}: {
+	control: Control<T>;
+	name: FieldPath<T>;
+	label: ReactNode;
+	description?: ReactNode;
+	placeholder?: string;
+	min: number;
+}) {
+	const id = useId();
+	const { field, fieldState } = useController({ control, name });
+	const error = fieldState.error?.message;
+	return (
+		<FieldShell id={id} label={label} description={description} error={error}>
+			<Input
+				id={id}
+				type="number"
+				inputMode="numeric"
+				min={min}
+				step={1}
+				placeholder={placeholder}
+				name={field.name}
+				ref={field.ref}
+				value={typeof field.value === "string" ? field.value : ""}
+				onChange={(event) => field.onChange(event.target.value)}
+				onBlur={field.onBlur}
+				aria-invalid={error !== undefined || undefined}
+				aria-describedby={description !== undefined ? `${id}-description` : undefined}
+			/>
+		</FieldShell>
 	);
 }

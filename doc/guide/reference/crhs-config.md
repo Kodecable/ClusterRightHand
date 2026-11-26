@@ -53,7 +53,7 @@ path = "/var/lib/crhs/crhs.db"
 | `host` | string | `"127.0.0.1"` | Address to listen on. |
 | `port` | integer 0–65535 | `8080` | Port to listen on. `0` picks a free port. |
 
-The client address header is the System setting `listen.real_ip_header` (see below).
+The client address header is **System settings → General → Real client IP header** (see below).
 
 ## [database]
 
@@ -105,50 +105,50 @@ Where crhs fetches the crha it upgrades nodes to: the release of its own version
 The low-frequency settings below are **not** in `crhs.toml`. Administrators edit them in the WebUI's
 [**System settings**](../webui.md#system-settings) page, and a change applies without restarting crhs.
 
-| Setting | Type | Default | Meaning |
+| Group → item | Type | Default | Meaning |
 |---|---|---|---|
-| `public_url` | absolute http(s) URL | unset | The public address of the WebUI, used for links crhs returns (for example in MCP results). A path prefix is allowed; no query or fragment. Unset: links use the address of the request. |
-| `clock_warn` | duration | `"60s"` | Warn when a node's clock differs from crhs's by more than this. `"0s"` disables the warning. Not the authorization tolerance, which is `clock_skew` in [`privileged.toml`](privileged-config.md#top-level-keys). |
-| `retention.tasks` | duration of at least `"1d"`, or `"off"` | `"90d"` | Finished tasks and task groups, and authorizations past their deadline. |
-| `retention.audit` | duration of at least `"1d"`, or `"off"` | `"180d"` | Audit events; the most recent events are always kept. |
-| `retention.pi_tasks` | duration of at least `"1d"`, or `"off"` | `"7d"` | Internal records of finished agent tool calls. |
-| `webauthn.rp_id` | hostname | unset | The hostname Passkeys are registered for, such as `crh.example.com`. |
-| `webauthn.rp_name` | string | `"ClusterRightHand"` | Name shown by the authenticator. |
-| `webauthn.origins` | array of origins | unset | Origins allowed to use Passkeys, as `scheme://host[:port]` without a default port, for example `["https://crh.example.com"]`. |
-| `auth.argon2_concurrency` | integer ≥ 1 | `2` | Password hashes computed at once. Each uses 64 MiB of memory. |
-| `auth.argon2_queue` | integer ≥ 0 | `32` | Password hashes allowed to wait; beyond that, requests fail with `hash_busy`. |
-| `auth.captcha` | `"cap"` or `"none"` | `"cap"` | Whether sign-in requires the proof-of-work check. Use `"none"` only where no browser is involved. |
-| `listen.real_ip_header` | header name | unset | Take the client address from the first value of this header, for example `X-Forwarded-For`. Unset: the connection's peer address. |
-| `library.user.files` | integer ≥ 0 | `256` | Files a new user library may hold. |
-| `library.user.file_bytes` | integer ≥ 0 | `33554432` | Largest single file in a new user library, in bytes (32 MiB). |
-| `library.user.total_bytes` | integer ≥ 0 | `268435456` | Total size of a new user library, in bytes (256 MiB). |
-| `library.user_group.files` | integer ≥ 0 | `0` | Files a new user group library may hold; `0` allows none. |
-| `library.user_group.file_bytes` | integer ≥ 0 | `0` | Largest single file in a new user group library, in bytes. |
-| `library.user_group.total_bytes` | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
-| `attachments.inline_text_bytes` | integer ≥ 0 | `32768` | Largest attachment whose text content is included in the message (32 KiB). |
-| `attachments.inline_total_bytes` | integer ≥ 0 | `65536` | Most attachment text included over one message (64 KiB). |
-| `image_cache.disk_bytes` | integer ≥ 0 | `1073741824` | Image cache size on crhs's local disk (1 GiB). |
-| `image_cache.ttl` | duration | `"7d"` | Drop an image cache entry unused for this long. Must be greater than zero. |
-| `directory_copy.files` | integer ≥ 0 | `256` | Most files one `copy_file` with `recursive: true` copies into a library. |
-| `directory_copy.bytes` | integer ≥ 0 | `268435456` | Most bytes one directory copy takes (256 MiB). |
-| `skills.max_per_user` | integer ≥ 0 | `64` | Most skills a session's system prompt lists. A library with more `skills/<name>/SKILL.md` files lists none, and the prompt tells the model to browse `skills/` itself. |
-| `jobs.max_consecutive_wakes` | integer ≥ 0 | `10` | Most times completion notices may wake a session since its last user-authored message. Past it, notices wait for the next tool result or the next user turn. `0` disables notice wakes. |
-| `jobs.max_running` | integer ≥ 0 | `32` | Most unsettled jobs a session, or an API token over MCP, may have at once. A tool that would start another fails with `job_limit`. `0` allows no jobs. |
-| `pty.enabled` | boolean | `true` | Whether terminals exist. Turning it off closes every terminal, hides the Terminals page and removes the agent tools from the next request. |
-| `pty.max_per_node` | integer ≥ 0 | `8` | Most terminals held on one node, opening, running or exited. |
-| `pty.max_total` | integer ≥ 0 | `64` | Most terminals held across all nodes. |
-| `pty.max_per_session` | integer ≥ 0 | `4` | Most terminals one session may have created or be associated with. |
-| `pty.agent_idle_timeout_max` | duration | `"1h"` | Largest idle timeout an agent's `pty_open` may ask for. |
-| `pty.watch_timeout_max` | duration | `"10m"` | Longest `pty_watch` an agent may ask for. |
-| `pty.scrollback_bytes` | integer, 64 KiB..16 MiB | `1048576` | crha's ring buffer per terminal, in bytes (1 MiB). |
-| `metrics.enabled` | boolean | `true` | Whether crhs samples host metrics from its nodes. Turning it off stops the samples; stored metrics stay until retention removes them. |
-| `metrics.interval` | `15`, `20`, `30` or `60` | `60` | Seconds between samples. A changed interval applies from the next tick. |
-| `metrics.retention.l1` | duration, at least 10 minutes | `"24h"` | How long 1-minute buckets are kept. |
-| `metrics.retention.l2` | duration, at least 50 minutes | `"7d"` | How long 5-minute buckets are kept. |
-| `metrics.retention.l3` | duration, at least 10 hours | `"30d"` | How long 1-hour buckets are kept. |
-| `metrics.retention.l4` | duration, at least 10 days | `"365d"` | How long 1-day buckets are kept. |
+| **General → Public URL** | absolute http(s) URL | unset | The public address of the WebUI, used for links crhs returns (for example in MCP results). A path prefix is allowed; no query or fragment. Unset: links use the address of the request. |
+| **General → Real client IP header** | header name | unset | Take the client address from the first value of this header, for example `X-Forwarded-For`. Unset: the connection's peer address. |
+| **General → Clock warning threshold** | duration | `"60s"` | Warn when a node's clock differs from crhs's by more than this. `"0s"` disables the warning. Not the authorization tolerance, which is `clock_skew` in [`privileged.toml`](privileged-config.md#top-level-keys). |
+| **Sign-in → Captcha** | `"cap"` or `"none"` | `"cap"` | Whether sign-in requires the proof-of-work check. Use `"none"` only where no browser is involved. |
+| **Sign-in → Argon2 concurrency** | integer ≥ 1 | `2` | Password hashes computed at once. Each uses 64 MiB of memory. |
+| **Sign-in → Argon2 queue** | integer ≥ 0 | `32` | Password hashes allowed to wait; beyond that, requests fail with `hash_busy`. |
+| **Passkeys → Relying party ID** | hostname | unset | The hostname Passkeys are registered for, such as `crh.example.com`. |
+| **Passkeys → Display name** | string | `"ClusterRightHand"` | Name shown by the authenticator. |
+| **Passkeys → Allowed origins** | array of origins | unset | Origins allowed to use Passkeys, as `scheme://host[:port]` without a default port, for example `["https://crh.example.com"]`. |
+| **Data retention → Tasks** | duration of at least `"1d"`, or `"off"` | `"90d"` | Finished tasks and task groups, and authorizations past their deadline. |
+| **Data retention → Audit events** | duration of at least `"1d"`, or `"off"` | `"180d"` | Audit events; the most recent events are always kept. |
+| **Data retention → Agent tool records** | duration of at least `"1d"`, or `"off"` | `"7d"` | Internal records of finished agent tool calls. |
+| **Library defaults → Files for new users** | integer ≥ 0 | `256` | Files a new user library may hold. |
+| **Library defaults → One file for new users** | integer ≥ 0 | `33554432` | Largest single file in a new user library, in bytes (32 MiB). |
+| **Library defaults → Total size for new users** | integer ≥ 0 | `268435456` | Total size of a new user library, in bytes (256 MiB). |
+| **Library defaults → Files for new groups** | integer ≥ 0 | `0` | Files a new user group library may hold; `0` allows none. |
+| **Library defaults → One file for new groups** | integer ≥ 0 | `0` | Largest single file in a new user group library, in bytes. |
+| **Library defaults → Total size for new groups** | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
+| **Chat attachments → Largest file to inline** | integer ≥ 0 | `32768` | Largest attachment whose text content is included in the message (32 KiB). |
+| **Chat attachments → Most inlined per message** | integer ≥ 0 | `65536` | Most attachment text included over one message (64 KiB). |
+| **Image cache → Cache size on disk** | integer ≥ 0 | `1073741824` | Image cache size on crhs's local disk (1 GiB). |
+| **Image cache → Time to live** | duration | `"7d"` | Drop an image cache entry unused for this long. Must be greater than zero. |
+| **Directory copies and skills → Most files in one directory copy** | integer ≥ 0 | `256` | Most files one `copy_file` with `recursive: true` copies into a library. |
+| **Directory copies and skills → Most bytes in one directory copy** | integer ≥ 0 | `268435456` | Most bytes one directory copy takes (256 MiB). |
+| **Directory copies and skills → Most skills listed per user** | integer ≥ 0 | `64` | Most skills a session's system prompt lists. A library with more `skills/<name>/SKILL.md` files lists none, and the prompt tells the model to browse `skills/` itself. |
+| **Terminals → Enable terminals** | boolean | `true` | Whether terminals exist. Turning it off closes every terminal, hides the Terminals page and removes the agent tools from the next request. |
+| **Terminals → Terminals per node** | integer ≥ 0 | `8` | Most terminals held on one node, opening, running or exited. |
+| **Terminals → Terminals in total** | integer ≥ 0 | `64` | Most terminals held across all nodes. |
+| **Terminals → Terminals per session** | integer ≥ 0 | `4` | Most terminals one session may have created or be associated with. |
+| **Terminals → Longest agent idle timeout** | duration | `"1h"` | Largest idle timeout an agent's `pty_open` may ask for. |
+| **Terminals → Longest watch timeout** | duration | `"10m"` | Longest `pty_watch` an agent may ask for. |
+| **Terminals → Scrollback per terminal** | integer, 64 KiB..16 MiB | `1048576` | crha's ring buffer per terminal, in bytes (1 MiB). |
+| **Jobs → Completion notice wakes** | integer ≥ 0 | `10` | Most times completion notices may wake a session since its last user-authored message. Past it, notices wait for the next tool result or the next user turn. `0` disables notice wakes. |
+| **Jobs → Jobs per session** | integer ≥ 0 | `32` | Most unsettled jobs a session, or an API token over MCP, may have at once. A tool that would start another fails with `job_limit`. `0` allows no jobs. |
+| **Metrics → Collect host metrics** | boolean | `true` | Whether crhs samples host metrics from its nodes. Turning it off stops the samples; stored metrics stay until retention removes them. |
+| **Metrics → Sample interval** | `15`, `20`, `30` or `60` | `60` | Seconds between samples. A changed interval applies from the next tick. |
+| **Metrics → Keep 1-minute buckets** | duration, at least 10 minutes | `"24h"` | How long 1-minute buckets are kept. |
+| **Metrics → Keep 5-minute buckets** | duration, at least 50 minutes | `"7d"` | How long 5-minute buckets are kept. |
+| **Metrics → Keep 1-hour buckets** | duration, at least 10 hours | `"30d"` | How long 1-hour buckets are kept. |
+| **Metrics → Keep 1-day buckets** | duration, at least 10 days | `"365d"` | How long 1-day buckets are kept. |
 
-The metrics group is **System settings → Metrics**; each retention must be at least ten buckets of its
+In the **Metrics** group, each retention must be at least ten buckets of its
 level and at least as long as the level before it.
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
@@ -165,21 +165,22 @@ bound for nodes, is packed into one archive on a node and copied as a file. Skil
 `skills/` in a user's own library, each with a `SKILL.md` whose YAML frontmatter has `name` (the
 directory's name, in kebab-case) and `description`.
 
-Set `webauthn.rp_id` and `webauthn.origins` together, or leave both unset to take them from each
+Set **Passkeys → Relying party ID** and **Allowed origins** together, or leave both unset to take them from each
 request's origin.
 
 The retention sweep runs shortly after startup and then hourly. Each value is a duration of at least
-`"1d"`, or `"off"` to keep records forever. Finished jobs follow `retention.tasks`, but are kept at least
+`"1d"`, or `"off"` to keep records forever. Finished jobs follow **Data retention → Tasks**, but are kept at least
 one day after they settle. Session conversations are not affected.
 
-A completion notice may wake an idle session at most `jobs.max_consecutive_wakes` times since the last
-message a user typed; the count is stored on the session, so a restart does not reset it. A session at
-`jobs.max_running` unsettled jobs refuses a tool that would start another with `job_limit`, and an API
-token is limited the same way over MCP.
+**Jobs → Completion notice wakes** caps how many times completion notices may wake an idle session since
+the last message a user typed; the count is stored on the session, so a restart does not reset it. A
+session that reaches its **Jobs → Jobs per session** limit of unsettled jobs refuses a tool that would
+start another with `job_limit`, and an API token is limited the same way over MCP.
 
 The terminal limits count a terminal from its open until it is closed, including the five minutes an
-exited terminal stays visible. crha clamps `pty.scrollback_bytes` to its own 64 KiB..16 MiB range; the
-setting itself is validated in that range, so what crhs asks for is what crha keeps.
+exited terminal stays visible. crha clamps **Terminals → Scrollback per terminal** to its own
+64 KiB..16 MiB range; the setting itself is validated in that range, so what crhs asks for is what crha
+keeps.
 
 Each metric level's retention must be at least ten buckets of that level, and each level at least as long
 as the one before it, so a read always has a coarser level to fall back to. Shortening a retention takes
@@ -187,11 +188,11 @@ effect at the next hourly sweep; a bucket is deleted only once it ended before i
 
 Cleanup and the client address use the values read at the time they run. Logins can always use every
 hashing slot, while password changes and user creation are held back, so signed-in users cannot block
-others from signing in. If you raise `argon2_concurrency` above 2, also raise the `UV_THREADPOOL_SIZE`
+others from signing in. If you raise **Sign-in → Argon2 concurrency** above 2, also raise the `UV_THREADPOOL_SIZE`
 environment variable (default 4).
 
 The client address is used for login rate limiting and the login captcha. If you set
-`real_ip_header`, your reverse proxy must overwrite that header, and crhs must not be reachable
+**General → Real client IP header**, your reverse proxy must overwrite that header, and crhs must not be reachable
 directly; otherwise clients can choose their own address. The `Forwarded` header is not supported.
 
 ## Unknown keys and errors

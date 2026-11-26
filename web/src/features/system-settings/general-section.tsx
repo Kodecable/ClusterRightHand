@@ -2,16 +2,17 @@ import type { SystemSettings } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { TextField } from "@/components/form";
+import { WarningBanner } from "@/components/warning-banner";
 import { useSaveSystemSettings } from "./api";
-import { applyServerFieldErrors, durationMs, isHttpUrl } from "./form";
+import { applyServerFieldErrors, durationMs, isHeaderName, isHttpUrl } from "./form";
 import { SettingsSection } from "./section-form";
 
 /**
- * General system settings: the public base URL crhs puts in links it returns and
- * the clock-drift warning threshold (doc/guide/reference/crhs-config.md "System settings").
+ * General system settings: the public base URL crhs puts in links it returns, the header
+ * carrying the real client address and the clock-drift warning threshold (doc/guide/reference/crhs-config.md "System settings").
  */
 export function GeneralSection({ settings, defaults }: { settings: SystemSettings; defaults: SystemSettings }) {
 	const { t } = useLingui();
@@ -24,6 +25,12 @@ export function GeneralSection({ settings, defaults }: { settings: SystemSetting
 				publicUrl: z
 					.string()
 					.refine((value) => value.trim() === "" || isHttpUrl(value.trim()), t`Enter an absolute http or https URL.`),
+				realIpHeader: z
+					.string()
+					.refine(
+						(value) => value.trim() === "" || isHeaderName(value.trim()),
+						t`Enter an HTTP header name such as X-Forwarded-For.`,
+					),
 				clockWarn: z.string().refine((value) => durationMs(value) !== null, t`Enter a duration such as 60s or 5m.`),
 			}),
 		[t],
@@ -32,22 +39,34 @@ export function GeneralSection({ settings, defaults }: { settings: SystemSetting
 
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
-		defaultValues: { publicUrl: settings.publicUrl ?? "", clockWarn: settings.clockWarn },
+		defaultValues: {
+			publicUrl: settings.publicUrl ?? "",
+			realIpHeader: settings.realIpHeader ?? "",
+			clockWarn: settings.clockWarn,
+		},
 	});
+	const realIpHeader = useWatch({ control: form.control, name: "realIpHeader" });
 
 	const submit = form.handleSubmit(async (values) => {
 		setError(undefined);
 		const publicUrl = values.publicUrl.trim();
+		const header = values.realIpHeader.trim();
 		try {
 			const next = await save.mutateAsync({
 				publicUrl: publicUrl === "" ? null : publicUrl,
+				realIpHeader: header === "" ? null : header,
 				clockWarn: values.clockWarn.trim(),
 			});
-			form.reset({ publicUrl: next.publicUrl ?? "", clockWarn: next.clockWarn });
+			form.reset({
+				publicUrl: next.publicUrl ?? "",
+				realIpHeader: next.realIpHeader ?? "",
+				clockWarn: next.clockWarn,
+			});
 		} catch (failure) {
 			setError(
 				applyServerFieldErrors<Values>(failure, form.setError, {
 					publicUrl: "publicUrl",
+					realIpHeader: "realIpHeader",
 					clockWarn: "clockWarn",
 				}),
 			);
@@ -76,6 +95,25 @@ export function GeneralSection({ settings, defaults }: { settings: SystemSetting
 					</Trans>
 				}
 			/>
+			<TextField
+				control={form.control}
+				name="realIpHeader"
+				label={<Trans>Real client IP header</Trans>}
+				placeholder="X-Forwarded-For"
+				description={
+					<Trans>
+						Take the client address from this header's first value. Empty uses the connection's address (the default).
+					</Trans>
+				}
+			/>
+			{realIpHeader.trim() !== "" && (
+				<WarningBanner icon>
+					<Trans>
+						Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients
+						can choose their own address.
+					</Trans>
+				</WarningBanner>
+			)}
 			<TextField
 				control={form.control}
 				name="clockWarn"

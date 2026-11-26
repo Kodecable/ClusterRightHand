@@ -108,8 +108,8 @@ the vocabulary: nodes, tasks, rules, approvals and privilege.
    open the local approval window, and leave the trust entries empty. A privileged task then waits until
    you run `sudo crha approve --for 10m` on the host; `sudo crha lock` closes the window early.
 6. Approve the node in **Nodes** after comparing the key fingerprint that enroll printed.
-7. From here on, ask in a WebUI session for any deployment or change: setting up a domain, TLS and
-   `public_url`, registering a Passkey and adding it to the node's trust configuration, moving to Docker
+7. From here on, ask in a WebUI session for any deployment or change: setting up a domain, TLS and the
+   public URL, registering a Passkey and adding it to the node's trust configuration, moving to Docker
    Compose, enrolling other machines, and so on. Other crha nodes connect from other machines, so they need the domain and TLS
    first; SSH nodes do not. When the agent needs a privileged task, open a short local window as above.
    For example:

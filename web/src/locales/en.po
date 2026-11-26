@@ -1509,6 +1509,10 @@ msgstr "Compat must be valid JSON."
 msgid "Completed"
 msgstr "Completed"
 
+#: src/features/system-settings/jobs-section.tsx
+msgid "Completion notice wakes"
+msgstr "Completion notice wakes"
+
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "Confirm"
@@ -2342,6 +2346,7 @@ msgstr "Enter a valid path without a trailing /."
 msgid "Enter a whole number between 0 and {MAX_LIMIT}."
 msgstr "Enter a whole number between 0 and {MAX_LIMIT}."
 
+#: src/features/system-settings/jobs-section.tsx
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of 0 or more."
 msgstr "Enter a whole number of 0 or more."
@@ -2365,7 +2370,7 @@ msgstr "Enter a whole number, 0 or more."
 msgid "Enter an absolute http or https URL."
 msgstr "Enter an absolute http or https URL."
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Enter an HTTP header name such as X-Forwarded-For."
 msgstr "Enter an HTTP header name such as X-Forwarded-For."
 
@@ -2915,6 +2920,14 @@ msgstr "Its tools disappear from sessions and its stored headers are deleted. Wa
 msgid "its units do not start the running binary"
 msgstr "its units do not start the running binary"
 
+#: src/features/system-settings/jobs-section.tsx
+msgid "Jobs"
+msgstr "Jobs"
+
+#: src/features/system-settings/jobs-section.tsx
+msgid "Jobs per session"
+msgstr "Jobs per session"
+
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Jump {0}"
@@ -3414,6 +3427,16 @@ msgstr "Most inlined per message"
 #: src/features/system-settings/attachments-section.tsx
 msgid "Most skills listed per user"
 msgstr "Most skills listed per user"
+
+#. placeholder {0}: defaults.jobs.maxConsecutiveWakes
+#: src/features/system-settings/jobs-section.tsx
+msgid "Most times completion notices may wake a session since its last message a user typed; 0 turns notice wakes off. Default: {0}."
+msgstr "Most times completion notices may wake a session since its last message a user typed; 0 turns notice wakes off. Default: {0}."
+
+#. placeholder {0}: defaults.jobs.maxRunning
+#: src/features/system-settings/jobs-section.tsx
+msgid "Most unsettled jobs a session, or an API token over MCP, may have at once; 0 allows none. Default: {0}."
+msgstr "Most unsettled jobs a session, or an API token over MCP, may have at once; 0 allows none. Default: {0}."
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -4604,7 +4627,7 @@ msgstr "Read-only"
 msgid "Ready"
 msgstr "Ready"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Real client IP header"
 msgstr "Real client IP header"
 
@@ -5842,7 +5865,7 @@ msgstr "Table"
 msgid "Tail of output"
 msgstr "Tail of output"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Take the client address from this header's first value. Empty uses the connection's address (the default)."
 msgstr "Take the client address from this header's first value. Empty uses the connection's address (the default)."
 
@@ -7045,7 +7068,7 @@ msgstr "You have view access: the owner can let you send messages by sharing it 
 msgid "Your approval is needed"
 msgstr "Your approval is needed"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."
 msgstr "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."
 

@@ -210,5 +210,5 @@ prints the window's end time. A node with no `crhs` entry cannot open a window.
 |---|---|---|
 | `CRHA_TASK_HOME`, `CRHA_TASK_USER`, `CRHA_TASK_LOGNAME`, `CRHA_TASK_SHELL` | crha | Override the account and shell given to tasks ([crha configuration](crha-config.md#environment-overrides)). |
 | `CRHA_PRIVILEGED_SOCKET` | `crha approve`, `crha lock` | The privileged mode's socket. |
-| `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with `auth.argon2_concurrency` in **System settings**. |
+| `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with **System settings → Sign-in → Argon2 concurrency**. |
 | `RE2_DOWNLOAD_MIRROR` | `npm ci` in the crhs tar without Node | Mirror for the prebuilt RE2 module. |

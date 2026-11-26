@@ -130,7 +130,7 @@ to be approved.
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `clock_warn` | System settings (crhs), `crha.toml` | Warn when a node's clock differs from crhs's by more than this, measured once per connection. Warning only. |
+| Clock warning threshold | **System settings → General** (crhs), `clock_warn` in `crha.toml` | Warn when a node's clock differs from crhs's by more than this, measured once per connection. Warning only. |
 | `clock_skew` | `privileged.toml` | Tolerance when a node checks an authorization's issue time and deadline. Shown in the WebUI as **Authorization clock tolerance**. |
 
 Authorization deadlines are written by the signer's clock and checked by the node's, so run time
@@ -182,8 +182,8 @@ the database backup: it contains crhs's private keys. See [Backups and restore](
 **Network**
 
 - [ ] Keep crhs listening on loopback and expose it through a reverse proxy with TLS.
-- [ ] If you set `real_ip_header` in **System settings**, make the proxy overwrite that header;
-  otherwise clients choose the address used for rate limiting.
+- [ ] If you set **System settings → General → Real client IP header**, make the proxy overwrite
+  that header; otherwise clients choose the address used for rate limiting.
 - [ ] Treat the proxy as trusted: it sees WebUI and MCP traffic in plain text.
 
 **Accounts and tokens**

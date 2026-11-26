@@ -20,7 +20,7 @@ const SETTINGS: SystemSettings = {
 	imageCache: { diskBytes: 1073741824, ttl: "7d" },
 	directoryCopy: { files: 256, bytes: 268435456 },
 	skills: { maxPerUser: 64 },
-	jobs: { maxConsecutiveWakes: 10, maxRunning: 32 },
+	jobs: { maxConsecutiveWakes: 3, maxRunning: 16 },
 	pty: {
 		enabled: true,
 		maxPerNode: 8,
@@ -101,6 +101,7 @@ function mergeSettings(settings: SystemSettings, patch: Record<string, unknown>)
 		...(patch.publicUrl !== undefined ? { publicUrl: patch.publicUrl as string | null } : {}),
 		...(patch.clockWarn !== undefined ? { clockWarn: patch.clockWarn as string } : {}),
 		...(patch.realIpHeader !== undefined ? { realIpHeader: patch.realIpHeader as string | null } : {}),
+		...(patch.jobs !== undefined ? { jobs: { ...settings.jobs, ...(patch.jobs as object) } } : {}),
 		...(patch.retention !== undefined ? { retention: { ...settings.retention, ...(patch.retention as object) } } : {}),
 		...(patch.webauthn !== undefined ? { webauthn: { ...settings.webauthn, ...(patch.webauthn as object) } } : {}),
 		...(patch.auth !== undefined ? { auth: { ...settings.auth, ...(patch.auth as object) } } : {}),
@@ -204,6 +205,7 @@ describe("SystemSettingsPage", () => {
 			"Passkeys",
 			"Data retention",
 			"Terminals",
+			"Jobs",
 			"Authorization signing keys",
 		]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
@@ -248,7 +250,7 @@ describe("SystemSettingsPage", () => {
 		await renderWithRouter(<SystemSettingsPage />, "zh-CN");
 
 		expect(await screen.findByRole("heading", { name: "系统设置" })).toBeVisible();
-		for (const name of ["常规", "登录", "Passkey", "数据保留", "资料库默认值", "授权签名密钥"]) {
+		for (const name of ["常规", "登录", "Passkey", "数据保留", "资料库默认值", "后台作业", "授权签名密钥"]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
 		}
 	});
@@ -261,6 +263,8 @@ describe("SystemSettingsPage", () => {
 		expect(save).toBeDisabled();
 
 		await userEvent.type(within(general).getByLabelText("Public URL"), "https://crh.example.com");
+		await userEvent.type(within(general).getByLabelText("Real client IP header"), "X-Forwarded-For");
+		expect(await within(general).findByText(/must overwrite this header/)).toBeVisible();
 		await userEvent.clear(within(general).getByLabelText("Clock warning threshold"));
 		await userEvent.type(within(general).getByLabelText("Clock warning threshold"), "5m");
 		expect(save).toBeEnabled();
@@ -268,7 +272,11 @@ describe("SystemSettingsPage", () => {
 
 		await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
 		const patch = api.calls.find((call) => call.method === "PATCH");
-		expect(patch?.body).toEqual({ publicUrl: "https://crh.example.com", clockWarn: "5m" });
+		expect(patch?.body).toEqual({
+			publicUrl: "https://crh.example.com",
+			realIpHeader: "X-Forwarded-For",
+			clockWarn: "5m",
+		});
 		await waitFor(() => expect(save).toBeDisabled());
 	});
 
@@ -281,8 +289,7 @@ describe("SystemSettingsPage", () => {
 		await userEvent.click(await screen.findByRole("option", { name: "No captcha" }));
 		expect(await screen.findByText(/sign-in has no proof of work/)).toBeVisible();
 
-		await userEvent.type(within(signIn).getByLabelText("Real client IP header"), "X-Forwarded-For");
-		expect(await screen.findByText(/must overwrite this header/)).toBeVisible();
+		expect(within(signIn).queryByLabelText("Real client IP header")).toBeNull();
 		await userEvent.clear(within(signIn).getByLabelText("Argon2 concurrency"));
 		await userEvent.type(within(signIn).getByLabelText("Argon2 concurrency"), "4");
 		await userEvent.clear(within(signIn).getByLabelText("Argon2 queue"));
@@ -292,8 +299,49 @@ describe("SystemSettingsPage", () => {
 		await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
 		expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
 			auth: { captcha: "none", argon2Concurrency: 4, argon2Queue: 8 },
-			realIpHeader: "X-Forwarded-For",
 		});
+	});
+
+	test("shows the Jobs section's current values and defaults", async () => {
+		mockApi();
+		await renderPage();
+		const jobs = section("jobs-section");
+
+		expect(within(jobs).getByLabelText("Completion notice wakes")).toHaveValue(3);
+		expect(within(jobs).getByLabelText("Jobs per session")).toHaveValue(16);
+		expect(within(jobs).getByText(/Default: 10\./)).toBeVisible();
+		expect(within(jobs).getByText(/Default: 32\./)).toBeVisible();
+	});
+
+	test("saves only the Jobs section's fields", async () => {
+		const api = mockApi();
+		await renderPage();
+		const jobs = section("jobs-section");
+
+		const wakes = within(jobs).getByLabelText("Completion notice wakes");
+		await userEvent.clear(wakes);
+		await userEvent.type(wakes, "4");
+		const running = within(jobs).getByLabelText("Jobs per session");
+		await userEvent.clear(running);
+		await userEvent.type(running, "8");
+		await userEvent.click(within(jobs).getByRole("button", { name: "Save" }));
+
+		await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
+		expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+			jobs: { maxConsecutiveWakes: 4, maxRunning: 8 },
+		});
+	});
+
+	test("does not save an empty Jobs field", async () => {
+		const api = mockApi();
+		await renderPage();
+		const jobs = section("jobs-section");
+
+		await userEvent.clear(within(jobs).getByLabelText("Jobs per session"));
+		await userEvent.click(within(jobs).getByRole("button", { name: "Save" }));
+
+		expect(await within(jobs).findByText("Enter a whole number of 0 or more.")).toBeVisible();
+		expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
 	});
 
 	test("edits the Passkey origins list and saves only the Passkeys section", async () => {

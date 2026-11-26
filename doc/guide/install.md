@@ -210,12 +210,12 @@ server {
 }
 ```
 
-- The proxy must **overwrite** the header named by `real_ip_header` in **System settings** (here
-  `X-Forwarded-For`); crhs trusts its first value for rate limiting.
-- Passkeys need HTTPS and a hostname, not an IP address. The `rp_id` and `origins` in **System
-  settings** must match the public hostname.
+- The proxy must **overwrite** the header named in **System settings → General → Real client IP
+  header** (here `X-Forwarded-For`); crhs trusts its first value for rate limiting.
+- Passkeys need HTTPS and a hostname, not an IP address. **System settings → Passkeys → Relying party
+  ID** and **Allowed origins** must match the public hostname.
 - The session cookie requires HTTPS on any host other than localhost.
-- `public_url` in **System settings** makes links in MCP results use the public address.
+- **System settings → General → Public URL** makes links in MCP results use the public address.
 
 ## Install crha
 

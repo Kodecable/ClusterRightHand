@@ -247,8 +247,8 @@ Run time synchronization (chrony, systemd-timesyncd) on the crhs host and every 
 authorization deadlines with their own clock, so a wrong clock causes refusals or lets authorizations
 last longer than intended.
 
-A **clock** warning next to a node means its clock differed from crhs's by more than `clock_warn` in
-**System settings** when it connected. Fix the clock, then restart `crha` so the offset is measured
+A **clock** warning next to a node means its clock differed from crhs's by more than **System settings →
+General → Clock warning threshold** when it connected. Fix the clock, then restart `crha` so the offset is measured
 again. The warning never blocks work. It is unrelated to `clock_skew` in `privileged.toml`, which is
 the tolerance for checking authorizations; do not raise `clock_skew` instead of fixing the clock.
 
@@ -287,10 +287,10 @@ reach every hop.
   when crhs restarts.
 - `login_in_progress`: another login from the same address is in progress; retry.
 - `captcha_failed`: the challenge expired (after two minutes) or the client address changed between
-  challenge and login. Behind a proxy, set `real_ip_header` in **System settings** and make the proxy
-  overwrite that header.
-- `hash_busy`: too many password checks at once; retry, or raise `auth.argon2_concurrency` in
-  **System settings**.
+  challenge and login. Behind a proxy, set **System settings → General → Real client IP header** and
+  make the proxy overwrite that header.
+- `hash_busy`: too many password checks at once; retry, or raise **System settings → Sign-in → Argon2
+  concurrency**.
 - If you are returned to the sign-in page right after signing in, the browser did not keep the session
   cookie: on any host other than localhost the WebUI must be served over HTTPS.
 

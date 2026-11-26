@@ -601,6 +601,9 @@ lists every value and its default. Each settings section has its own **Save**.
 - **Directory copies and skills.** The most files and bytes one directory copy into a library takes, and
   the most skills a session's system prompt lists from `skills/` in the owner's library; past that limit
   it lists none and the model browses the directory itself.
+- **Jobs.** **Completion notice wakes** caps how many times completion notices may wake an idle session
+  since the last message a user typed; `0` turns notice wakes off. **Jobs per session** caps the
+  unsettled jobs a session, or an API token over MCP, may have at once; `0` allows none.
 - **Metrics.** **Collect host metrics** turns sampling on or off; stored samples stay until retention
   removes them. **Sample interval** is 15, 20, 30 or 60 seconds and applies from the next tick. The four
   retention fields keep 1-minute, 5-minute, 1-hour and 1-day buckets, each at least ten buckets long and

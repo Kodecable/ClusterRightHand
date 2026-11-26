@@ -1509,6 +1509,10 @@ msgstr "compat 必须是有效的 JSON。"
 msgid "Completed"
 msgstr "已完成"
 
+#: src/features/system-settings/jobs-section.tsx
+msgid "Completion notice wakes"
+msgstr "完成通知唤醒次数"
+
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "确认"
@@ -2342,6 +2346,7 @@ msgstr "请输入有效路径，且结尾不能包含 /。"
 msgid "Enter a whole number between 0 and {MAX_LIMIT}."
 msgstr "请输入 0 到 {MAX_LIMIT} 之间的整数。"
 
+#: src/features/system-settings/jobs-section.tsx
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of 0 or more."
 msgstr "请输入大于等于 0 的整数。"
@@ -2365,7 +2370,7 @@ msgstr "请输入不小于 0 的整数。"
 msgid "Enter an absolute http or https URL."
 msgstr "请输入绝对的 http 或 https URL。"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Enter an HTTP header name such as X-Forwarded-For."
 msgstr "请输入 HTTP 头名称，例如 X-Forwarded-For。"
 
@@ -2915,6 +2920,14 @@ msgstr "它的工具会从会话中消失，已存储的请求头会被删除。
 msgid "its units do not start the running binary"
 msgstr "其单元启动的不是正在运行的二进制"
 
+#: src/features/system-settings/jobs-section.tsx
+msgid "Jobs"
+msgstr "后台作业"
+
+#: src/features/system-settings/jobs-section.tsx
+msgid "Jobs per session"
+msgstr "每个会话的作业数"
+
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Jump {0}"
@@ -3414,6 +3427,16 @@ msgstr "每条消息最多内联"
 #: src/features/system-settings/attachments-section.tsx
 msgid "Most skills listed per user"
 msgstr "每个用户最多列出的 skill 数"
+
+#. placeholder {0}: defaults.jobs.maxConsecutiveWakes
+#: src/features/system-settings/jobs-section.tsx
+msgid "Most times completion notices may wake a session since its last message a user typed; 0 turns notice wakes off. Default: {0}."
+msgstr "自用户上次输入消息以来，完成通知最多可唤醒会话的次数；0 表示关闭通知唤醒。默认：{0}。"
+
+#. placeholder {0}: defaults.jobs.maxRunning
+#: src/features/system-settings/jobs-section.tsx
+msgid "Most unsettled jobs a session, or an API token over MCP, may have at once; 0 allows none. Default: {0}."
+msgstr "一个会话或通过 MCP 使用的 API 令牌最多可同时拥有多少个未结束的作业；0 表示不允许任何作业。默认：{0}。"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -4604,7 +4627,7 @@ msgstr "只读"
 msgid "Ready"
 msgstr "就绪"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Real client IP header"
 msgstr "真实客户端 IP 头"
 
@@ -5842,7 +5865,7 @@ msgstr "表格"
 msgid "Tail of output"
 msgstr "输出末尾"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Take the client address from this header's first value. Empty uses the connection's address (the default)."
 msgstr "从该头的第一个值获取客户端地址。留空则使用连接的地址（默认）。"
 
@@ -7045,7 +7068,7 @@ msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消
 msgid "Your approval is needed"
 msgstr "需要你的审批"
 
-#: src/features/system-settings/sign-in-section.tsx
+#: src/features/system-settings/general-section.tsx
 msgid "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."
 msgstr "反向代理必须覆盖此头，且 crhs 必须无法被直接访问；否则客户端可以自行选择地址。"
 

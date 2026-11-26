@@ -172,7 +172,7 @@ Errors are returned as tool results with `isError` set and a stable code, such a
 
 Tasks started over MCP appear in **Tasks** with the API token as their actor, and in the audit log.
 
-Set `public_url` in **System settings** when crhs runs behind a reverse proxy, so the links in tool
+Set **System settings → General → Public URL** when crhs runs behind a reverse proxy, so the links in tool
 results use the public address ([Reverse proxy and TLS](install.md#reverse-proxy-and-tls)).
 
 ### Privileged tasks over MCP
