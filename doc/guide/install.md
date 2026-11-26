@@ -340,13 +340,16 @@ enroll again.
 An administrator's session can bring a host in by itself and leave only the approval to you. The host
 has no crha yet, so the agent reaches it over SSH with a credential you provide: usually you first add
 it as an [SSH node](#add-an-ssh-node) whose login is root or can `sudo` without a password, or you let
-it `ssh` there from an existing node with a key you put on that node. It also needs the `crhs-api`
-extension for `api_request`.
+it `ssh` there from an existing node with a key you put on that node. If you would rather type the
+password or key passphrase yourself, open a [terminal](webui.md#terminals) on an existing crha node, log
+in to the host with `ssh` there and associate the terminal with the session: the agent then works in
+that shell, and no credential reaches it. It also needs the `crhs-api` extension for `api_request`.
 
 1. The agent asks for a token: `api_request` `POST /api/enrollment-tokens` with `{"nameHint": "web-2"}`.
    The route asks for approval, so you approve the call in the session or on **Approvals**. The answer
    is `{"token": "crh1.…", "expiresAt": "…"}`: one use, one hour.
-2. Over that SSH access, with ordinary `exec` and file tasks under your rules, it
+2. Over that SSH access, with ordinary `exec` and file tasks or in the shared terminal, under your
+   rules, it
    [installs crha](#install-crha), writes the token into an answers file only root can read and
    enrolls:
 
