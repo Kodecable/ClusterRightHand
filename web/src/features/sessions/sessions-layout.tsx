@@ -33,7 +33,13 @@ export function SessionsLayout() {
 			>
 				<SessionList selectedId={params.sessionId} />
 			</aside>
-			<div className={cn("min-w-0 flex-1 overflow-hidden", openSession ? "block" : "hidden lg:block")}>
+			{/* One reading column for the session page and the draft page alike (doc/design/webui.md "Session page"). */}
+			<div
+				className={cn(
+					"min-w-0 flex-1 overflow-hidden [--session-column:52rem]",
+					openSession ? "block" : "hidden lg:block",
+				)}
+			>
 				<Outlet />
 			</div>
 		</div>

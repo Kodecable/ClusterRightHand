@@ -640,8 +640,8 @@ drifts while rows are measured.
 The transcript, its footer and the composer share one maximum column width. The scroller itself stays
 full width, so its scrollbar sits at the pane's edge, while every rendered row's content is centered in a
 column. The status line, background bar, composer and decision panel below the transcript center their
-content on the same column but keep their borders and backgrounds full-bleed. A narrow screen simply
-never reaches the cap.
+content on the same column but keep their borders and backgrounds full-bleed. The new-session draft
+uses the same column for its composer. A narrow screen simply never reaches the cap.
 
 While the reader is at the bottom, new content keeps the view pinned. Any upward scroll stops following
 immediately and shows a **Jump to latest** button.

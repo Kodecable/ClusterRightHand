@@ -235,11 +235,7 @@ export function SessionPage() {
 	};
 
 	return (
-		<div
-			className="flex h-full min-h-0 flex-col [--session-column:52rem]"
-			data-testid="session-page"
-			data-session-id={view.id}
-		>
+		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
 			<SessionHeader session={view} />
 			<SessionBanner
 				connection={events.connection}
