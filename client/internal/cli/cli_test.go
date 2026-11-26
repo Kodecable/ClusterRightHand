@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -15,15 +17,18 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
+	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
-		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
+		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"}, {"privileged", "check"},
 		{"enroll"}, {"register"}, {"status"}, {"upgrade"}, {"upgrade", "status"}, {"upgrade", "rollback"},
 		{"__upgrade-install"},
 		{"approve"}, {"lock"}, {"version"},
@@ -43,6 +48,7 @@ func TestConfigFlagRequired(t *testing.T) {
 	commands := [][]string{
 		{"run"},
 		{"privileged", "run"},
+		{"privileged", "check"},
 		{"register"},
 		{"status"},
 	}
@@ -100,6 +106,126 @@ func execute(args ...string) error {
 	root.SetErr(io.Discard)
 	root.SetArgs(args)
 	return root.Execute()
+}
+
+// privilegedCheckTOML returns a valid privileged.toml with three trust entries, using fresh SSH
+// keys so that key parsing is exercised too.
+func privilegedCheckTOML(t *testing.T) string {
+	t.Helper()
+	newKey := func() string {
+		public, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPublic, err := ssh.NewPublicKey(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic)))
+	}
+	dir := t.TempDir()
+	return fmt.Sprintf(`
+node_id          = "0192f000-0000-7000-8000-000000000001"
+unprivileged_uid = 998
+socket           = %q
+state_dir        = %q
+log              = %q
+
+[[trust]]
+name   = "crhs"
+role   = "crhs"
+format = "sshsig"
+key    = %q
+kinds  = ["execute"]
+
+[[trust]]
+name   = "admin-ssh"
+role   = "user"
+format = "sshsig"
+key    = %q
+kinds  = ["execute"]
+
+[[trust]]
+name       = "local"
+role       = "local"
+uids       = [0, 1000]
+max_window = "30m"
+`, filepath.Join(dir, "privileged.sock"), filepath.Join(dir, "state"),
+		filepath.Join(dir, "privileged.jsonl"), newKey(), newKey())
+}
+
+// TestPrivilegedCheck covers that `crha privileged check` accepts a file the privileged mode
+// would load and prints the entry names and the trust digest crhs shows for a closed window.
+func TestPrivilegedCheck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "privileged.toml")
+	if err := os.WriteFile(path, []byte(privilegedCheckTOML(t)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := NewRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"privileged", "check", "--config", path})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("privileged check: %v", err)
+	}
+	cfg, err := privconfig.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	summary := cfg.Summary()
+	summary.LocalWindow = protocol.ClosedWindow()
+	digest, err := protocol.TrustDigest(summary)
+	if err != nil {
+		t.Fatalf("TrustDigest: %v", err)
+	}
+	want := fmt.Sprintf("ok: %s, 3 trust entries (crhs, admin-ssh, local), trust digest %x", path, digest)
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 2 || lines[0] != want {
+		t.Fatalf("output = %q, want %q and a second line", out.String(), want)
+	}
+	if !strings.Contains(lines[1], "reload") || !strings.Contains(lines[1], "crhs") ||
+		!strings.Contains(lines[1], "same digest") {
+		t.Fatalf("second line = %q, want the reload/digest note", lines[1])
+	}
+}
+
+// TestPrivilegedCheckErrors covers the failures `crha privileged check` reports exactly as the
+// privileged mode would: a writable file, an unknown key and a missing file.
+func TestPrivilegedCheckErrors(t *testing.T) {
+	t.Run("group-writable", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "privileged.toml")
+		if err := os.WriteFile(path, []byte(privilegedCheckTOML(t)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o664); err != nil {
+			t.Fatal(err)
+		}
+		err := execute("privileged", "check", "--config", path)
+		if err == nil || !strings.Contains(err.Error(), "invalid: "+path) ||
+			!strings.Contains(err.Error(), "group- or world-writable") {
+			t.Fatalf("error = %v, want the group-writable refusal", err)
+		}
+	})
+	t.Run("unknown key", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "privileged.toml")
+		content := "bogus = true\n" + privilegedCheckTOML(t)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := execute("privileged", "check", "--config", path)
+		if err == nil || !strings.Contains(err.Error(), "invalid: "+path) ||
+			!strings.Contains(err.Error(), "unknown key: bogus") {
+			t.Fatalf("error = %v, want the unknown-key refusal", err)
+		}
+	})
+	t.Run("missing", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing.toml")
+		err := execute("privileged", "check", "--config", path)
+		if err == nil || !strings.Contains(err.Error(), "invalid: "+path) {
+			t.Fatalf("error = %v, want the missing-file refusal", err)
+		}
+	})
 }
 
 // TestApprovalSocket covers the socket precedence of the manual local approval commands:

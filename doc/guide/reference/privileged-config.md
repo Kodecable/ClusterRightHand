@@ -12,6 +12,11 @@ others; otherwise the privileged mode refuses it. Unknown keys and duplicate ent
 `SIGHUP` reloads the file. A file that fails to load leaves the current configuration in place. Changes
 to `socket`, `socket_group`, `state_dir` and `log` need a restart.
 
+Run `crha privileged check --config <file>` before sending `SIGHUP`: it applies the same owner, mode
+and parse checks and prints the trust digest the reload will report. After the reload, compare that
+digest with the node's trust digest in crhs (the node page's trust panel, or
+`GET /api/nodes/{id}/trust`) to confirm the new configuration took effect.
+
 Editing this file through CRH is itself a privileged task, which an existing trusted signer must
 authorize. Deny crhs writes under `/etc/crha/` so that crhs cannot change whom the node trusts. While a
 local approval window is open, that deny rule does not apply: crhs can change the trust configuration

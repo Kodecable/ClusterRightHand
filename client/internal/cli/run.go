@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -359,8 +360,48 @@ run it from a terminal.`,
 		},
 	}
 
-	cmd.AddCommand(run, stdio)
+	var checkConfigPath string
+	check := &cobra.Command{
+		Use:   "check",
+		Short: "Validate a privileged config file",
+		Long: `Validate a privileged config file exactly as the privileged mode loads it: ownership, mode,
+unknown keys and trust entries. It prints the trust digest crhs reports after a reload.
+
+It reads the file only: it does not contact the daemon or crhs and changes nothing.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return checkPrivilegedConfig(cmd.OutOrStdout(), checkConfigPath)
+		},
+	}
+	check.Flags().StringVar(&checkConfigPath, "config", "", "path to the privileged config file (required)")
+	_ = check.MarkFlagRequired("config")
+
+	cmd.AddCommand(run, stdio, check)
 	return cmd
+}
+
+// checkPrivilegedConfig is `crha privileged check`: load a privileged.toml exactly as
+// `crha privileged run` and its SIGHUP reload do, then print the trust digest crhs reports for
+// a node with no local approval window open. It only reads the file.
+func checkPrivilegedConfig(out io.Writer, configPath string) error {
+	cfg, err := privconfig.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("invalid: %s: %w", configPath, err)
+	}
+	summary := cfg.Summary()
+	summary.LocalWindow = protocol.ClosedWindow()
+	digest, err := protocol.TrustDigest(summary)
+	if err != nil {
+		return fmt.Errorf("invalid: %s: %w", configPath, err)
+	}
+	names := make([]string, 0, len(cfg.Trust))
+	for i := range cfg.Trust {
+		names = append(names, cfg.Trust[i].Name)
+	}
+	fmt.Fprintf(out, "ok: %s, %d trust entries (%s), trust digest %x\n",
+		configPath, len(names), strings.Join(names, ", "), digest)
+	fmt.Fprintln(out, "crhs shows the same digest after a reload (SIGHUP) when no local approval window is open")
+	return nil
 }
 
 // runPrivileged is `crha privileged run`: load the trust configuration, open the local log and

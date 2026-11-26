@@ -101,6 +101,7 @@ Errors are printed as `crha: <message>` with exit code 1.
 | Command | Purpose |
 |---|---|
 | `privileged run --config <file>` | Run the privileged mode of a `forward` node, usually as root. |
+| `privileged check --config <file>` | Validate `privileged.toml` exactly as the privileged mode loads it, and print the trust digest a reload would produce. |
 | `privileged stdio` | The helper that `native` mode starts through sudo, doas or run0. Not for direct use. |
 
 `privileged run --no-persist-used` keeps the record of executed tasks in memory only, for devices with

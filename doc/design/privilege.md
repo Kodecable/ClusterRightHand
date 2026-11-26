@@ -109,7 +109,8 @@ While a local approval window is open, that restriction is deliberately lifted: 
 trust configuration as well.
 
 Each process reloads only its own configuration file on SIGHUP. A file that fails to load leaves the
-running configuration in place.
+running configuration in place. Run `crha privileged check` before reloading and compare its printed
+digest with the node's trust digest in crhs afterwards to confirm the new configuration took effect.
 
 ## Methods and targets
 
