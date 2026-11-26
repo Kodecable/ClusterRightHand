@@ -76,11 +76,13 @@ CDN is contacted. An expired challenge is solved and retried once.
 ### Shell, theme and language
 
 The shell is a collapsible navigation sidebar, a top bar with the page title, and the routed page.
-Below the medium breakpoint the sidebar becomes a drawer. A detail page may title the shell and the
-browser tab with the object's own name, for example a task's summary. The sidebar header shows the CRH
-mark, a self-contained blue square with white glyphs that needs no tile on the dark theme, and the
-version of the tree under the product name. The favicon set and the web manifest are served from the
-WebUI root (`web/public/`); their sources are the logo delivery package.
+Below the medium breakpoint the sidebar becomes a drawer. The shell is exactly one visual viewport tall:
+the soft keyboard resizes it (`--app-height`, measured from `window.visualViewport` where a browser
+does not resize the layout viewport), and the document itself never scrolls. A detail page may title the
+shell and the browser tab with the object's own name, for example a task's summary. The sidebar header
+shows the CRH mark, a self-contained blue square with white glyphs that needs no tile on the dark theme,
+and the version of the tree under the product name. The favicon set and the web manifest are served from
+the WebUI root (`web/public/`); their sources are the logo delivery package.
 
 Colors, radii and spacing come from semantic design tokens. Depth is expressed only through tokens,
 in the same direction in light and dark themes. The theme is applied by an inline script before the
@@ -700,7 +702,9 @@ and to the draft's own button before the session exists ([Session header](#sessi
 [New session](#new-session)).
 
 The line below the composer shows generation statistics, token usage with the cache hit rate, and
-context use ([Agent runtime](agent-runtime.md#session-statistics)). The remaining budget uses the
+context use ([Agent runtime](agent-runtime.md#session-statistics)). The draft grows with its text up to
+two fifths of the session page's own height, so the composer's growth never feeds back into the cap
+that limits it. The remaining budget uses the
 budget measure, not the usage measure. A docked decision panel replaces the composer while something
 waits for the viewer ([Session header](#session-header)).
 

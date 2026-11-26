@@ -11,6 +11,7 @@ import { InternalLink } from "@/components/internal-link";
 import { parseTasksSearch } from "@/features/tasks/search";
 import type { AuthStore } from "@/lib/session";
 import { authStore } from "@/lib/session";
+import { useVisualViewportHeight } from "@/lib/use-visual-viewport-height";
 import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
 
@@ -19,18 +20,22 @@ export interface RouterContext {
 }
 
 function NotFoundPage() {
+	// Outside the shell, so it mounts the height fallback itself.
+	useVisualViewportHeight();
 	return (
-		<div className="grid min-h-svh place-items-center p-6 text-center">
-			<div className="grid gap-2">
-				<h1 className="text-lg font-semibold">
-					<Trans>Page not found</Trans>
-				</h1>
-				<p className="text-sm text-muted-foreground">
-					<Trans>The page you asked for does not exist.</Trans>
-				</p>
-				<InternalLink to="/sessions" className="text-sm">
-					<Trans>Go to sessions</Trans>
-				</InternalLink>
+		<div className="h-[var(--app-height,100svh)] overflow-y-auto">
+			<div className="grid min-h-full place-items-center p-6 text-center">
+				<div className="grid gap-2">
+					<h1 className="text-lg font-semibold">
+						<Trans>Page not found</Trans>
+					</h1>
+					<p className="text-sm text-muted-foreground">
+						<Trans>The page you asked for does not exist.</Trans>
+					</p>
+					<InternalLink to="/sessions" className="text-sm">
+						<Trans>Go to sessions</Trans>
+					</InternalLink>
+				</div>
 			</div>
 		</div>
 	);

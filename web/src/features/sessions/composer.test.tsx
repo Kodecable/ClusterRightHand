@@ -115,6 +115,72 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve };
 }
 
+interface ResizeObserverRecord {
+	callback: ResizeObserverCallback;
+	elements: Set<Element>;
+}
+
+/**
+ * A ResizeObserver the test drives itself: the composer's measurement is
+ * coalesced to one frame, so the test fires the callback and then waits a frame.
+ */
+function mockResizeObserver(): { observed: ResizeObserverRecord[]; fire: () => void; restore: () => void } {
+	const original = window.ResizeObserver;
+	const observed: ResizeObserverRecord[] = [];
+	class TestResizeObserver {
+		readonly record: ResizeObserverRecord;
+		constructor(callback: ResizeObserverCallback) {
+			this.record = { callback, elements: new Set() };
+			observed.push(this.record);
+		}
+		observe(element: Element) {
+			this.record.elements.add(element);
+		}
+		unobserve(element: Element) {
+			this.record.elements.delete(element);
+		}
+		disconnect() {
+			this.record.elements.clear();
+		}
+	}
+	window.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+	return {
+		observed,
+		fire: () => {
+			for (const record of observed) record.callback([], {} as ResizeObserver);
+		},
+		restore: () => {
+			window.ResizeObserver = original;
+		},
+	};
+}
+
+async function flushFrame(): Promise<void> {
+	await act(async () => {
+		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	});
+}
+
+/** The composer on its session page, with a page height the test can change. */
+function renderComposerOnPage(): { page: HTMLElement; setPageHeight: (height: number) => void } {
+	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+	renderWithI18n(
+		<QueryClientProvider client={client}>
+			<div data-testid="session-page">
+				<div data-slot="transcript" />
+				<Composer session={sessionView()} stoppable={false} />
+			</div>
+		</QueryClientProvider>,
+	);
+	const page = screen.getByTestId("session-page");
+	let height = 0;
+	Object.defineProperty(page, "clientHeight", {
+		configurable: true,
+		get: () => height,
+	});
+	return { page, setPageHeight: (next) => (height = next) };
+}
+
 function renderComposer(props: { canChat?: boolean; stoppable?: boolean; session?: Partial<SessionView> } = {}) {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
 	const element = (id: string) => {
@@ -367,44 +433,61 @@ describe("Composer", () => {
 		expect(input().value).toBe("draft for s2");
 	});
 
-	test("mutations elsewhere in the document do not measure the transcript", async () => {
+	test("the draft's cap follows the session page's own height", async () => {
 		mockFetch();
-		const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-		renderWithI18n(
-			<QueryClientProvider client={client}>
-				<div data-testid="session-page">
-					<div data-slot="transcript" data-testid="fixture-transcript" />
-					<Composer session={sessionView()} stoppable={false} />
-				</div>
-			</QueryClientProvider>,
-		);
-		const transcript = screen.getByTestId("fixture-transcript");
-		let reads = 0;
-		Object.defineProperty(transcript, "clientHeight", {
-			configurable: true,
-			get: () => {
-				reads += 1;
-				return 600;
-			},
-		});
+		const resize = mockResizeObserver();
+		try {
+			const { page, setPageHeight } = renderComposerOnPage();
+			// One observer, and it watches the page, not the transcript or the composer.
+			expect(resize.observed.flatMap((record) => [...record.elements])).toContain(page);
 
-		// A mutation elsewhere (a toast, a portal, another page's DOM) is not the
-		// transcript pane and must not force a measurement.
-		const elsewhere = document.createElement("div");
-		document.body.append(elsewhere);
-		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		});
-		expect(reads).toBe(0);
+			setPageHeight(600);
+			act(() => resize.fire());
+			await flushFrame();
+			expect(input().style.maxHeight).toBe("240px");
 
-		// The transcript mounting or being replaced is a page-level change: the
-		// observer finds it again and measures once on the next frame.
-		screen.getByTestId("session-page").append(document.createElement("div"));
-		await act(async () => {
-			await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-		});
-		expect(reads).toBeGreaterThan(0);
-		elsewhere.remove();
+			// A window resize measures the page again, and the cap follows.
+			setPageHeight(300);
+			act(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
+			await flushFrame();
+			expect(input().style.maxHeight).toBe("120px");
+		} finally {
+			resize.restore();
+		}
+	});
+
+	test("a taller composer or textarea does not change the cap", async () => {
+		mockFetch();
+		const resize = mockResizeObserver();
+		try {
+			const { setPageHeight } = renderComposerOnPage();
+			setPageHeight(600);
+			act(() => resize.fire());
+			await flushFrame();
+			expect(input().style.maxHeight).toBe("240px");
+
+			const composer = document.querySelector<HTMLElement>('[data-slot="composer"]');
+			if (composer === null) throw new Error("composer not rendered");
+			composer.style.height = "400px";
+			input().style.height = "300px";
+
+			// Even a full measurement reads the unchanged page: growing the draft
+			// cannot shrink the cap that limits it.
+			act(() => resize.fire());
+			act(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
+			await flushFrame();
+			expect(input().style.maxHeight).toBe("240px");
+
+			const observed = resize.observed.flatMap((record) => [...record.elements]);
+			expect(observed).not.toContain(composer);
+			expect(observed).not.toContain(input());
+		} finally {
+			resize.restore();
+		}
 	});
 
 	test("a retried send reuses the request id until the text changes", async () => {

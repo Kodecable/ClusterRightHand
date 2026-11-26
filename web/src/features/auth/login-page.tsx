@@ -13,6 +13,7 @@ import { loginErrorMessage, useLogin, useLoginOptions } from "@/features/auth/ap
 import { safeRedirectPath } from "@/features/auth/redirect";
 import { APP_NAME } from "@/lib/meta";
 import { useAuth } from "@/lib/session";
+import { useVisualViewportHeight } from "@/lib/use-visual-viewport-height";
 
 interface LoginValues {
 	username: string;
@@ -32,6 +33,8 @@ export function LoginPage() {
 	const login = useLogin();
 	const loginOptions = useLoginOptions();
 	const captcha = loginOptions.data?.captcha ?? "none";
+	// The login route renders outside the shell, so it mounts the height fallback itself.
+	useVisualViewportHeight();
 
 	const schema = useMemo(
 		() =>
@@ -69,40 +72,48 @@ export function LoginPage() {
 	});
 
 	return (
-		<main className="grid min-h-svh place-items-center bg-sidebar p-4">
-			<Card className="w-full max-w-sm">
-				<CardHeader>
-					<CardTitle className="text-center text-lg">{APP_NAME}</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<form className="grid gap-3" onSubmit={(event) => void submit(event)} noValidate>
-						<TextField
-							control={form.control}
-							name="username"
-							label={<Trans>Username</Trans>}
-							autoComplete="username"
-							autoFocus
-						/>
-						<TextField
-							control={form.control}
-							name="password"
-							type="password"
-							label={<Trans>Password</Trans>}
-							autoComplete="current-password"
-						/>
-						{login.error !== null && <ErrorText error={loginErrorMessage(login.error) ?? login.error} />}
-						<Button
-							type="submit"
-							disabled={login.isPending || loginOptions.isPending}
-							className="mt-1"
-							aria-busy={login.isPending || undefined}
-						>
-							{login.isPending && <Spinner className="size-4" decorative />}
-							{login.isPending && captcha === "cap" ? <Trans>Running a security check…</Trans> : <Trans>Sign in</Trans>}
-						</Button>
-					</form>
-				</CardContent>
-			</Card>
+		// The document never scrolls, so the page scrolls itself when the form is taller than what the keyboard
+		// leaves; the inner grid only centers it.
+		<main className="h-[var(--app-height,100svh)] overflow-y-auto bg-sidebar">
+			<div className="grid min-h-full place-items-center p-4">
+				<Card className="w-full max-w-sm">
+					<CardHeader>
+						<CardTitle className="text-center text-lg">{APP_NAME}</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<form className="grid gap-3" onSubmit={(event) => void submit(event)} noValidate>
+							<TextField
+								control={form.control}
+								name="username"
+								label={<Trans>Username</Trans>}
+								autoComplete="username"
+								autoFocus
+							/>
+							<TextField
+								control={form.control}
+								name="password"
+								type="password"
+								label={<Trans>Password</Trans>}
+								autoComplete="current-password"
+							/>
+							{login.error !== null && <ErrorText error={loginErrorMessage(login.error) ?? login.error} />}
+							<Button
+								type="submit"
+								disabled={login.isPending || loginOptions.isPending}
+								className="mt-1"
+								aria-busy={login.isPending || undefined}
+							>
+								{login.isPending && <Spinner className="size-4" decorative />}
+								{login.isPending && captcha === "cap" ? (
+									<Trans>Running a security check…</Trans>
+								) : (
+									<Trans>Sign in</Trans>
+								)}
+							</Button>
+						</form>
+					</CardContent>
+				</Card>
+			</div>
 		</main>
 	);
 }

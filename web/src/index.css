@@ -4,6 +4,19 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/*
+ * The shell is one viewport tall and scrolls inside its own panes, so the
+ * document itself must never scroll or rubber-band. `--app-height` (set by
+ * useVisualViewportHeight) covers browsers that only shrink the visual viewport
+ * for the soft keyboard (doc/design/webui.md "Shell, theme and language").
+ */
+html,
+body {
+	height: 100%;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
 @theme inline {
 	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 	--font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;

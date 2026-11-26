@@ -202,14 +202,14 @@ test("the model and rule preset controls open their option lists directly", asyn
 	expect(iconOffsets.every((offset) => offset <= 0.5)).toBe(true);
 });
 
-test("the composer is one rounded box that grows with its content up to half the transcript", async ({ page }) => {
+test("the composer is one rounded box that grows with its content up to two fifths of the page", async ({ page }) => {
 	await openFooterPage(page);
 	const input = page.getByTestId("composer-input");
 	const initial = await input.evaluate((element) => {
 		const style = getComputedStyle(element);
 		const box = element.parentElement;
 		const header = document.querySelector('[data-testid="session-header"]');
-		const transcript = document.querySelector('[data-slot="transcript"]');
+		const sessionPage = document.querySelector('[data-testid="session-page"]');
 		return {
 			height: element.getBoundingClientRect().height,
 			resize: style.resize,
@@ -217,7 +217,7 @@ test("the composer is one rounded box that grows with its content up to half the
 			boxBorder: box === null ? null : getComputedStyle(box).borderTopWidth,
 			boxRadius: box === null ? null : getComputedStyle(box).borderRadius,
 			headerBorder: header === null ? null : getComputedStyle(header).borderBottomWidth,
-			maxHeight: transcript === null ? 0 : transcript.clientHeight / 2,
+			maxHeight: sessionPage === null ? 0 : Math.floor(sessionPage.clientHeight * 0.4),
 		};
 	});
 	expect(initial.inputBorder).toBe("0px");
@@ -236,6 +236,10 @@ test("the composer is one rounded box that grows with its content up to half the
 	}));
 	expect(grown.height).toBeGreaterThan(initial.height + 40);
 	expect(grown.height).toBeLessThanOrEqual(initial.maxHeight + 1);
+	// The cap does not depend on the composer, so a full draft reaches it and stays there.
+	expect(grown.height).toBeGreaterThanOrEqual(initial.maxHeight - 1);
+	await page.waitForTimeout(200);
+	expect(await input.evaluate((element) => element.getBoundingClientRect().height)).toBe(grown.height);
 	expect(grown.scrollHeight).toBeGreaterThan(grown.clientHeight);
 });
 

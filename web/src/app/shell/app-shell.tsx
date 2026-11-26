@@ -11,6 +11,7 @@ import { APP_NAME } from "@/lib/meta";
 import { PageTitleProvider } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
 import { readStorage, writeStorage } from "@/lib/storage";
+import { useVisualViewportHeight } from "@/lib/use-visual-viewport-height";
 import { AppSidebar } from "./app-sidebar";
 
 const SIDEBAR_STORAGE_KEY = "crh.sidebar.open";
@@ -37,6 +38,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 	const [pageTitle, setPageTitle] = useState<string>();
 	// The server's language wins once the settings load (doc/design/webui.md "Settings dialog").
 	useServerLocaleSync();
+	// The shell follows the visual viewport when the soft keyboard only shrinks that.
+	useVisualViewportHeight();
 
 	const current = navItemForPath(pathname);
 	const fallbackTitle = current ? i18n._(current.label) : APP_NAME;
@@ -59,11 +62,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 		void navigate({ to: "/login", search: { redirect: href }, replace: true });
 	}, [auth.status, pathname, href, navigate, queryClient]);
 
+	// The provider's own `min-h-svh` is overridden too: a minimum height would keep
+	// the shell full-size when only the visual viewport follows the keyboard.
 	return (
 		<PageTitleProvider setTitle={setPageTitle}>
-			<SidebarProvider open={open} onOpenChange={changeOpen} className="h-svh overflow-hidden">
+			<SidebarProvider
+				open={open}
+				onOpenChange={changeOpen}
+				className="h-[var(--app-height,100svh)] min-h-[var(--app-height,100svh)] overflow-hidden"
+			>
 				<AppSidebar />
-				<SidebarInset className="h-svh min-h-0 min-w-0 overflow-hidden">
+				<SidebarInset className="h-[var(--app-height,100svh)] min-h-0 min-w-0 overflow-hidden">
 					<header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 						<SidebarTrigger data-testid="sidebar-trigger" aria-label={t`Toggle sidebar`} />
 						<Separator orientation="vertical" />
