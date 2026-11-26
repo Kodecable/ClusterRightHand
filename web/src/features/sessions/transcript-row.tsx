@@ -240,7 +240,7 @@ export function RunningRow() {
 			<div className="max-w-[92%]">
 				<TranscriptLine>
 					<LoaderCircleIcon className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-					<span className="min-w-0 flex-1 truncate font-mono text-xs">
+					<span className="min-w-0 flex-1 truncate text-xs">
 						<Trans>Running…</Trans>
 					</span>
 				</TranscriptLine>
