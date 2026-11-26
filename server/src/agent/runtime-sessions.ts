@@ -1,4 +1,4 @@
-import type { ChatAttachment, SessionEntriesPage } from "@crh/api";
+import type { ChatAttachment, SessionEntriesPage, SessionOutlinePage, SessionOutlineTurn } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
 	type AgentEvent,
@@ -1001,6 +1001,83 @@ export async function entriesPage(
 		entries: pageEntries.reverse().map(toEntryRecord),
 		historyCursor: collected.length > limit && oldest ? encodeCursor([], Number(oldest.id)) : null,
 	};
+}
+
+/** How many code points of a user message the outline keeps (doc/design/webui.md "Turn rail"). */
+const OUTLINE_TEXT_POINTS = 50;
+/** The most entries, shown or not, one outline request reads, so a long run of tool output stays one bounded read. */
+export const OUTLINE_SCAN_BUDGET = 2000;
+const OUTLINE_SCAN_BATCH = 200;
+
+/**
+ * The outline line of an entry, or undefined when the entry is not a user message as the WebUI shows it: a
+ * completion notice and a compaction summary are user-role messages but not turns. The text is the typed text,
+ * which a user input carries first, before its attachments and the sent time.
+ */
+export function outlineTurn(entry: PiEntryRecord): SessionOutlineTurn | undefined {
+	if (entry.kind === "pi.compaction" || entry.kind === "crh.notice" || !isShownEntry(entry)) return undefined;
+	const message = entry.model?.[0];
+	if (message?.role !== "user") return undefined;
+	const content = message.content;
+	const typed =
+		typeof content === "string"
+			? content
+			: (content.find((block): block is { type: "text"; text: string } => block.type === "text")?.text ?? "");
+	const points = Array.from(typed.replace(/\s+/g, " ").trim());
+	return {
+		entryId: Number(entry.id),
+		text: points.slice(0, OUTLINE_TEXT_POINTS).join(""),
+		truncated: points.length > OUTLINE_TEXT_POINTS,
+	};
+}
+
+/**
+ * A page of a session's outline for `GET /sessions/:id/outline` (doc/design/webui.md "Turn rail"): its user
+ * messages immediately before `before`, oldest first, each cut to 50 code points. One request reads at most
+ * `budget` entries; a page that stopped there may hold fewer than `limit` turns, and its cursor is the oldest entry
+ * it read. The cursor has the history cursor's format, so the WebUI can start the outline where its loaded history
+ * starts.
+ */
+export async function outlinePage(
+	host: RuntimeHost,
+	sessionId: string,
+	before: number | undefined,
+	limit: number,
+	budget = OUTLINE_SCAN_BUDGET,
+): Promise<SessionOutlinePage> {
+	const { conversation } = await loadConversation(host, sessionId);
+	const turns: SessionOutlineTurn[] = [];
+	let scanned = 0;
+	let oldestScanned: number | undefined;
+	let cursor: Cursor | undefined = before === undefined ? undefined : { after: before, order: "descending" };
+	let exhausted = false;
+	// One turn past `limit` tells whether an older one exists, so the last page ends with a null cursor.
+	while (turns.length <= limit) {
+		if (scanned >= budget) break;
+		const size = Math.min(OUTLINE_SCAN_BATCH, budget - scanned);
+		const page = await conversation.entries({ order: "descending" }, size, cursor, host.context);
+		for (const entry of page.items) {
+			scanned += 1;
+			oldestScanned = Number(entry.id);
+			const turn = outlineTurn(entry);
+			if (turn) turns.push(turn);
+			if (turns.length > limit) break;
+		}
+		if (!page.next) {
+			exhausted = true;
+			break;
+		}
+		cursor = page.next;
+	}
+	const kept = turns.slice(0, limit);
+	let next: string | null = null;
+	if (turns.length > limit) {
+		const oldestKept = kept[kept.length - 1];
+		if (oldestKept) next = encodeCursor([], oldestKept.entryId);
+	} else if (!exhausted && oldestScanned !== undefined) {
+		next = encodeCursor([], oldestScanned);
+	}
+	return { turns: kept.reverse(), cursor: next };
 }
 
 /**

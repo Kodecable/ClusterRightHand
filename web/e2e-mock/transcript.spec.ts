@@ -486,3 +486,66 @@ test("11. a stopped session keeps its red error row without a retry line", async
 	await expect(alert).toContainText("The run failed");
 	await expect(alert).toHaveClass(/text-danger/);
 });
+
+test("12. the turn rail previews a turn and jumps to history it has not loaded", async ({ page }) => {
+	// The rail needs a transcript at least 960 px wide; the shell's sidebar and session list take the rest.
+	await page.setViewportSize({ width: 1800, height: 900 });
+	const fixture = sessionState();
+	const api = await mockApi(page, {
+		state: {
+			...fixture,
+			olderEntries: {
+				s1: {
+					entries: [
+						userEntry("1", "the oldest question"),
+						assistantEntry("2", "old answer"),
+						userEntry("3", "old question"),
+					],
+					historyCursor: null,
+				},
+			},
+			outlines: {
+				s1: {
+					h1: {
+						turns: [
+							{ entryId: 1, text: "the oldest question", truncated: false },
+							{ entryId: 3, text: "old question", truncated: false },
+						],
+						cursor: null,
+					},
+				},
+			},
+		},
+	});
+	await login(page);
+	await openChat(page, api);
+
+	await expect(page.getByTestId("turn-rail")).toBeVisible();
+	// The mark of the turn near the top third of the transcript is current.
+	await expect(page.locator('[data-testid="turn-rail"] [aria-current="true"]')).toHaveCount(1);
+	const mark = page.getByRole("button", { name: "Go to message: old question" });
+	await expect(mark).toBeVisible();
+	await mark.hover();
+	await expect(page.getByTestId("turn-rail-preview")).toContainText("old question");
+
+	await mark.click();
+	// The unloaded mark pages the older entries in, then aligns the user message at the top.
+	await expect
+		.poll(() => api.state.requests.some((request) => request.url.startsWith("/api/sessions/s1/entries")), {
+			timeout: 10_000,
+		})
+		.toBe(true);
+	await expect
+		.poll(
+			() =>
+				page.evaluate((selector) => {
+					const scroller = document.querySelector<HTMLElement>(selector);
+					const row = scroller?.querySelector<HTMLElement>('[data-entry-id="3"]');
+					if (!scroller || !row) return Number.POSITIVE_INFINITY;
+					return Math.abs(row.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
+				}, SCROLLER),
+			{ timeout: 15_000 },
+		)
+		.toBeLessThan(80);
+	await expect(page.locator('[data-entry-id="3"]')).toBeVisible();
+});

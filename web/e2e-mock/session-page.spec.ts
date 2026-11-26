@@ -429,12 +429,14 @@ test("the background bar counts active jobs and opens the tree, expanding nested
 	await expect(bar).toBeVisible();
 	const geometry = await page.evaluate(() => {
 		const shell = document.querySelector<HTMLElement>('[data-testid="background-bar-shell"]');
+		// The bar's background stays full-bleed; its content shares the composer's column width.
+		const content = document.querySelector<HTMLElement>('[data-testid="background-bar-content"]');
 		const input = document.querySelector<HTMLElement>('[data-testid="composer-input"]');
 		const box = input?.parentElement;
-		if (!shell || !box) return null;
+		if (!shell || !content || !box) return null;
 		const shellStyle = getComputedStyle(shell);
 		return {
-			widthDelta: Math.abs(shell.getBoundingClientRect().width - box.getBoundingClientRect().width),
+			widthDelta: Math.abs(content.getBoundingClientRect().width - box.getBoundingClientRect().width),
 			gap: box.getBoundingClientRect().top - shell.getBoundingClientRect().bottom,
 			radius: shellStyle.borderRadius,
 			border: shellStyle.borderTopWidth,

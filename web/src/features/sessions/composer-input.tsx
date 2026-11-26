@@ -78,20 +78,22 @@ export function ComposerShell({
 				onDropFiles(files);
 			}}
 		>
-			<form
-				onSubmit={(event: FormEvent) => {
-					event.preventDefault();
-					onSubmit();
-				}}
-			>
-				<div className="relative rounded-xl border border-input bg-background shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/30">
-					<label className="sr-only" htmlFor={inputId}>
-						<Trans>Message</Trans>
-					</label>
-					{children}
-				</div>
-				{after}
-			</form>
+			<div className="mx-auto w-full max-w-(--session-column)">
+				<form
+					onSubmit={(event: FormEvent) => {
+						event.preventDefault();
+						onSubmit();
+					}}
+				>
+					<div className="relative rounded-xl border border-input bg-background shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/30">
+						<label className="sr-only" htmlFor={inputId}>
+							<Trans>Message</Trans>
+						</label>
+						{children}
+					</div>
+					{after}
+				</form>
+			</div>
 		</section>
 	);
 }

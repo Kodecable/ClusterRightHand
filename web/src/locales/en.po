@@ -11,6 +11,10 @@ msgstr ""
 msgid "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
 msgstr "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
 
+#: src/features/sessions/turn-rail.tsx
+msgid "(no text)"
+msgstr "(no text)"
+
 #. placeholder {0}: warning.nodeGroupName
 #: src/features/nodes/trust-warnings.tsx
 msgid "(Node group {0})"
@@ -2704,6 +2708,10 @@ msgstr "Generating…"
 msgid "Give both rows and columns, or neither."
 msgstr "Give both rows and columns, or neither."
 
+#: src/features/sessions/turn-rail.tsx
+msgid "Go to message: {text}"
+msgstr "Go to message: {text}"
+
 #: src/app/router.tsx
 msgid "Go to sessions"
 msgstr "Go to sessions"
@@ -3360,6 +3368,10 @@ msgstr "Message"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "Message composer"
+
+#: src/features/sessions/turn-rail.tsx
+msgid "Messages"
+msgstr "Messages"
 
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Method"

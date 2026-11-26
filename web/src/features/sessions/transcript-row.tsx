@@ -235,7 +235,8 @@ function CompactingRow() {
  */
 export function RunningRow() {
 	return (
-		<article className="px-3 pb-1" data-testid="transcript-running">
+		// The same column box as the transcript rows, with the row's own padding inside it.
+		<article className="mx-auto w-full max-w-(--session-column) px-3 pb-1" data-testid="transcript-running">
 			<div className="max-w-[92%]">
 				<TranscriptLine>
 					<LoaderCircleIcon className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />

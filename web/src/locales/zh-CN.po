@@ -11,6 +11,10 @@ msgstr ""
 msgid "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
 msgstr "… 省略 {omitted, plural, one {# 字节} other {# 字节}} …"
 
+#: src/features/sessions/turn-rail.tsx
+msgid "(no text)"
+msgstr "（无文本）"
+
 #. placeholder {0}: warning.nodeGroupName
 #: src/features/nodes/trust-warnings.tsx
 msgid "(Node group {0})"
@@ -2704,6 +2708,10 @@ msgstr "正在生成…"
 msgid "Give both rows and columns, or neither."
 msgstr "请同时填写行数和列数，或两者都留空。"
 
+#: src/features/sessions/turn-rail.tsx
+msgid "Go to message: {text}"
+msgstr "跳到消息：{text}"
+
 #: src/app/router.tsx
 msgid "Go to sessions"
 msgstr "前往会话"
@@ -3360,6 +3368,10 @@ msgstr "消息"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "消息输入框"
+
+#: src/features/sessions/turn-rail.tsx
+msgid "Messages"
+msgstr "消息列表"
 
 #: src/features/authorizations/issue-dialog.tsx
 msgid "Method"

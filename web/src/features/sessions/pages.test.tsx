@@ -1,4 +1,4 @@
-import type { ApprovalList, PtyView, SessionListItem, SessionView, TaskView } from "@crh/api";
+import type { ApprovalList, PtyView, SessionListItem, SessionOutlinePage, SessionView, TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -20,13 +20,19 @@ import { publishSessionListUpsert } from "./list-stream-bus";
 import { SessionPage } from "./pages";
 import type { EntryRecord, SessionEntriesPage, SessionEvent } from "./session-events";
 
+/** The `align` of every scroll the transcript asked the virtualizer for. */
+const scrollAligns = vi.hoisted(() => [] as (string | undefined)[]);
+
 // jsdom has no layout: render the virtualized rows directly. React 19 passes the
 // Virtualizer's ref as a prop, so the transcript's scrollToIndex handle exists too.
 vi.mock("virtua", async () => {
 	const { createElement } = await import("react");
 	return {
 		Virtualizer: (props: { data: unknown[]; children: (item: unknown) => ReactNode; ref?: { current: unknown } }) => {
-			if (props.ref !== undefined && props.ref !== null) props.ref.current = { scrollToIndex: () => {} };
+			if (props.ref !== undefined && props.ref !== null)
+				props.ref.current = {
+					scrollToIndex: (_index: number, options?: { align?: string }) => scrollAligns.push(options?.align),
+				};
 			return createElement(
 				"div",
 				null,
@@ -239,6 +245,7 @@ async function renderSessionPage({
 	eventsStatus,
 	entry,
 	olderPage,
+	outline,
 	approvals,
 	terminals,
 }: {
@@ -250,6 +257,8 @@ async function renderSessionPage({
 	entry?: number;
 	/** The page `GET /sessions/:id/entries?before=` answers; defaults to an empty, finished history. */
 	olderPage?: (before: string) => SessionEntriesPage;
+	/** The page `GET /sessions/:id/outline?before=` answers; defaults to an empty, finished outline. */
+	outline?: (before: string) => SessionOutlinePage;
 	/** The approvals list the test answers, read on every poll/refetch so a decision can settle it. */
 	approvals?: () => ApprovalList;
 	/** The terminals the terminal list answers, seeded before the page renders. */
@@ -277,6 +286,10 @@ async function renderSessionPage({
 			if (path === `/api/sessions/${session.id}/entries`) {
 				const before = url.searchParams.get("before") ?? "";
 				return json(olderPage?.(before) ?? { entries: [], historyCursor: null });
+			}
+			if (path === `/api/sessions/${session.id}/outline`) {
+				const before = url.searchParams.get("before") ?? "";
+				return json(outline?.(before) ?? { turns: [], cursor: null });
 			}
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
 			if (path === "/api/models") return json({ models: [] });
@@ -712,6 +725,45 @@ describe("jump to a searched entry", () => {
 		await waitFor(() => expect(router.state.location.search).not.toHaveProperty("entry"));
 	});
 
+	test("a rail mark pages history beyond the link budget and never touches the URL", async () => {
+		scrollAligns.length = 0;
+		let pages = 0;
+		const { router, requests } = await renderSessionPage({
+			session: sessionView(),
+			outline: () => ({
+				turns: [{ entryId: 5, text: "the very first question", truncated: false }],
+				cursor: null,
+			}),
+			olderPage: () => {
+				pages += 1;
+				if (pages >= 22) return { entries: [userEntry("5", "the very first question")], historyCursor: null };
+				return { entries: [userEntry(`x${pages}`, `older ${pages}`)], historyCursor: `h${pages}` };
+			},
+		});
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		await emitSnapshot(source, [userEntry("100", "recent"), userEntry("101", "newest")], "h0");
+
+		const mark = await screen.findByRole("button", { name: "Go to message: the very first question" });
+		fireEvent.click(mark);
+
+		const row = await waitFor(
+			() => {
+				const found = document.querySelector<HTMLElement>('[data-entry-id="5"][data-highlighted="true"]');
+				if (found === null) throw new Error("the rail's entry is not highlighted yet");
+				return found;
+			},
+			{ timeout: 15_000 },
+		);
+		expect(row).toHaveAttribute("data-message-id", "5");
+		// A rail jump puts the user message at the top; a link centers it.
+		await waitFor(() => expect(scrollAligns).toContain("start"));
+		expect(scrollAligns).not.toContain("center");
+		expect(requests.filter((url) => url.pathname === "/api/sessions/s1/entries").length).toBeGreaterThanOrEqual(22);
+		expect(router.state.location.search).not.toHaveProperty("entry");
+		// Twenty-odd sequential history pages: the waits above need more than the default test timeout.
+	}, 30_000);
+
 	test("gives up after the page cap with a toast", async () => {
 		const error = vi.spyOn(toast, "error").mockImplementation(() => "");
 		let pages = 0;
@@ -732,5 +784,6 @@ describe("jump to a searched entry", () => {
 		});
 		expect(requests.filter((url) => url.pathname === "/api/sessions/s1/entries")).toHaveLength(20);
 		await waitFor(() => expect(router.state.location.search).not.toHaveProperty("entry"));
-	});
+		// Twenty sequential history pages: the waits above need more than the default test timeout.
+	}, 30_000);
 });

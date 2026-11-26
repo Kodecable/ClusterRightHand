@@ -15,6 +15,8 @@ import {
 	SessionListResponseSchema,
 	SessionMessageBodySchema,
 	SessionMessageResponseSchema,
+	SessionOutlineQuerySchema,
+	SessionOutlineResponseSchema,
 	SessionPatchBodySchema,
 	SessionQuotaBodySchema,
 	SessionQuotaResponseSchema,
@@ -98,6 +100,8 @@ const SESSION_CURSOR: CursorSpec = {
 const HISTORY_CURSOR: CursorSpec = { columns: [], idType: "number" };
 /** History pages default to 100 entries (doc/design/webui.md "Session event stream and history"). */
 const DEFAULT_HISTORY = 100;
+/** Outline page size: user messages, 50 characters each (doc/design/webui.md "Turn rail"). */
+const DEFAULT_OUTLINE = 200;
 /** The scopes of the session list and of its stream. */
 export const SESSION_SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "visible", "all"]);
 
@@ -335,6 +339,18 @@ const entriesRoute = defineRoute({
 	request: { params: SessionIdParamSchema, query: SessionEntriesQuerySchema },
 	responses: {
 		200: { description: "One page of older entries", ...json(SessionEntriesResponseSchema) },
+	},
+});
+
+const outlineRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/outline",
+	tags: TAGS,
+	summary: "List the user messages immediately before a history cursor, oldest first, 50 characters each",
+	agent: "allow",
+	request: { params: SessionIdParamSchema, query: SessionOutlineQuerySchema },
+	responses: {
+		200: { description: "One page of the session's user messages", ...json(SessionOutlineResponseSchema) },
 	},
 });
 
@@ -834,6 +850,16 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const page = await runtime.entriesPage(v.session.id, beforeId, limit);
 		const entries: SessionEntry[] = page.entries;
 		return c.json({ entries, historyCursor: page.historyCursor }, 200);
+	});
+
+	app.openapi(outlineRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const query = c.req.valid("query");
+		const v = await requireSession(c, id);
+		const limit = parseLimit(query.limit, DEFAULT_OUTLINE);
+		const before = query.before;
+		const beforeId = before === undefined ? undefined : Number(decodeCursor(before, HISTORY_CURSOR).id);
+		return c.json(await runtime.outlinePage(v.session.id, beforeId, limit), 200);
 	});
 
 	return app;

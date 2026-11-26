@@ -52,6 +52,7 @@ import {
 	getSession,
 	hasSubagents,
 	latestEntryId,
+	outlinePage,
 	type RunReportContent,
 	reviewHistory,
 	reviewToolCall,
@@ -671,6 +672,11 @@ export class AgentRuntime {
 	/** A page of a session's history for `GET /sessions/:id/entries`, oldest first. */
 	async entriesPage(sessionId: string, before: number | undefined, limit: number) {
 		return entriesPage(this.#host, sessionId, before, limit);
+	}
+
+	/** A page of a session's user messages for `GET /sessions/:id/outline`, oldest first. */
+	async outlinePage(sessionId: string, before: number | undefined, limit: number, budget?: number) {
+		return outlinePage(this.#host, sessionId, before, limit, budget);
 	}
 
 	/** The newest visible entry id of a conversation, for per-conversation derived state (the image hook). */

@@ -390,9 +390,11 @@ export function SessionDecisionDock({ decisions }: { decisions: SessionDecision[
 			data-decision-id={decisionId(first)}
 			className="max-h-[50%] min-h-0 shrink-0 overflow-y-auto bg-background p-2 sm:p-3 [&_[data-slot=decision]]:bg-background"
 		>
-			{/* Keyed by the item, so the next decision mounts fresh: no "submitted" notice, pasted text,
-			    selected tab or mutation error of the one just answered carries over. */}
-			<DockDecision key={`${first.kind}:${decisionId(first)}`} decision={first} count={count} />
+			<div className="mx-auto w-full max-w-(--session-column)">
+				{/* Keyed by the item, so the next decision mounts fresh: no "submitted" notice, pasted text,
+				    selected tab or mutation error of the one just answered carries over. */}
+				<DockDecision key={`${first.kind}:${decisionId(first)}`} decision={first} count={count} />
+			</div>
 		</div>
 	);
 }

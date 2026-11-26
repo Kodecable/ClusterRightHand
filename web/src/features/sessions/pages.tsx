@@ -20,7 +20,7 @@ import { SessionBanner } from "./session-banner";
 import { SessionFooter } from "./session-decisions";
 import { SessionHeader } from "./session-header";
 import { isCompacting, type LiveTool } from "./session-reducer";
-import { Transcript } from "./transcript";
+import { Transcript, type TranscriptFocusRequest } from "./transcript";
 import { transcript } from "./transcript-items";
 import { useSessionEvents } from "./use-session-events";
 
@@ -54,10 +54,13 @@ export function SessionPage() {
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
-	// Jump-to-message (doc/design/webui.md "Jumping to a message"): `entry` is the id a search hit pointed at.
-	const [jumpEntry, setJumpEntry] = useState<number | undefined>(undefined);
+	// Jump-to-message (doc/design/webui.md "Jumping to a message"): `entry` is the id a search hit pointed at,
+	// or the mark of a turn-rail jump. A rail jump skips the URL and the page budget: its entry is known to
+	// exist, so it only gives up when the history cursor says the start is reached.
+	const [jump, setJump] = useState<{ entryId: number; source: "link" | "rail" } | undefined>(undefined);
 	const [jumpPages, setJumpPages] = useState(0);
-	const [focusEntry, setFocusEntry] = useState<string | undefined>(undefined);
+	const [focusRequest, setFocusRequest] = useState<TranscriptFocusRequest | undefined>(undefined);
+	const focusToken = useRef(0);
 	const clearJumpParam = useCallback(() => {
 		void navigate({ to: "/sessions/$sessionId", params: { sessionId }, search: {}, replace: true });
 	}, [navigate, sessionId]);
@@ -86,42 +89,47 @@ export function SessionPage() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new session starts with no pending older-page request and no jump
 	useEffect(() => {
 		setWantsOlder(false);
-		setJumpEntry(undefined);
+		setJump(undefined);
 		setJumpPages(0);
-		setFocusEntry(undefined);
+		setFocusRequest(undefined);
 	}, [sessionId]);
 
-	// A new `?entry=` starts a jump: reset the page budget that the effects below consume.
+	// A new `?entry=` starts a link jump: reset the page budget that the effects below consume.
 	useEffect(() => {
 		if (entry === undefined) return;
-		setJumpEntry(entry);
+		setJump({ entryId: entry, source: "link" });
 		setJumpPages(0);
 	}, [entry]);
 
 	useEffect(() => {
-		if (jumpEntry === undefined) return;
-		const target = String(jumpEntry);
+		if (jump === undefined) return;
+		const target = String(jump.entryId);
 		// Either the snapshot or a loaded older page carries the entry; mark the first rendered row.
 		if (items.some((item) => item.entryId === target)) {
-			setFocusEntry(target);
-			setJumpEntry(undefined);
-			clearJumpParam();
+			focusToken.current += 1;
+			setFocusRequest({
+				entryId: target,
+				align: jump.source === "rail" ? "start" : "center",
+				token: focusToken.current,
+			});
+			setJump(undefined);
+			if (jump.source === "link") clearJumpParam();
 			return;
 		}
 		// The initial snapshot decides whether the entry is already loaded; waiting for it avoids a
 		// pointless history request and gives up only on a page that really has no older entries.
 		if (!events.state.ready) return;
 		if (wantsOlder || history.isFetching) return;
-		if (events.state.historyCursor === null || jumpPages >= MAX_JUMP_PAGES) {
+		if (events.state.historyCursor === null || (jump.source === "link" && jumpPages >= MAX_JUMP_PAGES)) {
 			toast.error(t`Couldn't find that message in this session.`);
-			setJumpEntry(undefined);
-			clearJumpParam();
+			setJump(undefined);
+			if (jump.source === "link") clearJumpParam();
 			return;
 		}
 		setJumpPages((pages) => pages + 1);
 		setWantsOlder(true);
 	}, [
-		jumpEntry,
+		jump,
 		items,
 		events.state.ready,
 		events.state.historyCursor,
@@ -131,6 +139,14 @@ export function SessionPage() {
 		clearJumpParam,
 		t,
 	]);
+
+	/** A turn-rail mark: the same jump as a `?entry=` link, from the known outline entry instead. */
+	const jumpToEntry = useCallback((entryId: string) => {
+		const numeric = Number(entryId);
+		if (!Number.isSafeInteger(numeric)) return;
+		setJump({ entryId: numeric, source: "rail" });
+		setJumpPages(0);
+	}, []);
 
 	useEffect(() => {
 		if (!history.data) return;
@@ -219,7 +235,11 @@ export function SessionPage() {
 	};
 
 	return (
-		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
+		<div
+			className="flex h-full min-h-0 flex-col [--session-column:52rem]"
+			data-testid="session-page"
+			data-session-id={view.id}
+		>
 			<SessionHeader session={view} />
 			<SessionBanner
 				connection={events.connection}
@@ -242,7 +262,11 @@ export function SessionPage() {
 					hasOlder={events.state.historyCursor !== null}
 					loadingOlder={history.isFetching}
 					onLoadOlder={() => setWantsOlder(true)}
-					focusEntry={focusEntry}
+					sessionId={sessionId}
+					historyCursor={events.state.historyCursor}
+					focusRequest={focusRequest}
+					pendingEntryId={jump?.source === "rail" ? String(jump.entryId) : undefined}
+					onJumpToEntry={jumpToEntry}
 					canFork={view.capabilities.configure}
 					forkPending={forkSession.isPending}
 					onFork={forkAt}

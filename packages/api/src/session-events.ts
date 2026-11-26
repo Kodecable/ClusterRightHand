@@ -189,6 +189,20 @@ export type SessionEvent =
 	 */
 	| { type: "todo.changed"; todos: TodoItem[] | null };
 
+/** One user message in `GET /api/sessions/:id/outline` (doc/design/webui.md "Turn rail"). */
+export interface SessionOutlineTurn {
+	entryId: number;
+	/** The typed text's first 50 code points, whitespace collapsed. */
+	text: string;
+	truncated: boolean;
+}
+
+/** `GET /api/sessions/:id/outline`: the user messages before a cursor, oldest first. */
+export interface SessionOutlinePage {
+	turns: SessionOutlineTurn[];
+	cursor: string | null;
+}
+
 /** `GET /api/sessions/:id/entries`: one page of older entries, oldest first. */
 export interface SessionEntriesPage {
 	entries: EntryRecord[];

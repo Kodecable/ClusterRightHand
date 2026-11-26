@@ -8,6 +8,7 @@ import type { DeliveryDetails } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";
 import { ReplyActionsRow, RetryingRow, RunningRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
+import { TURN_RAIL_MIN_WIDTH, TurnRail } from "./turn-rail";
 import { buildTranscriptTurns } from "./turns";
 
 const END_THRESHOLD = 80;
@@ -16,6 +17,14 @@ const ANCHOR_MS = 400;
 const LOAD_DEBOUNCE_MS = 120;
 /** How long a jumped-to entry keeps its highlight before it fades (doc/design/webui.md "Jumping to a message"). */
 const HIGHLIGHT_MS = 2_000;
+
+/** A request to bring one entry into view: a search/link hit centers it, a turn-rail jump starts at the top. */
+export interface TranscriptFocusRequest {
+	entryId: string;
+	align: "center" | "start";
+	/** Changes with every request, so asking for the same entry twice scrolls again. */
+	token: number;
+}
 
 interface Anchor {
 	id: string;
@@ -72,7 +81,11 @@ export function Transcript({
 	loadingOlder,
 	onLoadOlder,
 	empty,
-	focusEntry,
+	focusRequest,
+	sessionId,
+	historyCursor = null,
+	pendingEntryId,
+	onJumpToEntry,
 	canFork = false,
 	forkPending = false,
 	onFork,
@@ -91,8 +104,16 @@ export function Transcript({
 	loadingOlder: boolean;
 	onLoadOlder: () => void;
 	empty?: React.ReactNode;
-	/** The entry a search hit asked to jump to; once its rows exist the list centers and marks it. */
-	focusEntry?: string;
+	/** The entry a search hit or a turn-rail mark asked to jump to; once its rows exist the list scrolls and marks it. */
+	focusRequest?: TranscriptFocusRequest;
+	/** The session's id; the turn rail asks its outline endpoint. Omitted by component tests without a session. */
+	sessionId?: string;
+	/** The transcript's history cursor, the turn rail's starting point for its outline pages. */
+	historyCursor?: string | null;
+	/** The rail jump still loading history: its mark pulses until the entry is in the transcript. */
+	pendingEntryId?: string;
+	/** A rail mark was chosen: load the entry if needed and scroll the user message to the top. */
+	onJumpToEntry?: (entryId: string) => void;
 	/** Whether the caller may fork: only the session owner sees the action (doc/design/webui.md "Message view"). */
 	canFork?: boolean;
 	/** A fork request is in flight; the action is disabled until it settles. */
@@ -100,13 +121,17 @@ export function Transcript({
 	onFork?: (entryId: number) => void;
 }) {
 	const { t } = useLingui();
+	const wrapperRef = useRef<HTMLDivElement | null>(null);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
+	const [wide, setWide] = useState(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const virtualizer = useRef<VirtualizerHandle | null>(null);
 	const [atBottom, setAtBottom] = useState(true);
 	const [highlighted, setHighlighted] = useState<string | null>(null);
+	const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
 	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const handledFocus = useRef<string | null>(null);
+	const handledFocus = useRef<number | null>(null);
+	const activeFrame = useRef<number | null>(null);
 	const atBottomRef = useRef(true);
 	const followingRef = useRef(true);
 	/** Set only by a real wheel/key gesture: a scroll event alone must not cancel the settle loop. */
@@ -328,15 +353,6 @@ export function Transcript({
 		};
 	}, []);
 
-	const onScroll = (event: UIEvent<HTMLDivElement>) => {
-		const element = event.currentTarget;
-		if (element.scrollTop < 360) requestOlder();
-		const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= END_THRESHOLD;
-		const recentProgrammatic = performance.now() - programmaticAt.current < 150;
-		if (!recentProgrammatic) followingRef.current = atEnd;
-		publishAtBottom(atEnd);
-	};
-
 	const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
 	// A live compacting row is always rendered after the last turn (doc/design/webui.md "Message rendering"); keeping it out
 	// of the turn builder means it can neither decide a turn's final answer nor hide a folded turn's rows.
@@ -450,11 +466,12 @@ export function Transcript({
 	const shift = previousFirst !== null && firstId !== "" && firstId !== previousFirst;
 
 	// Jump-to-message (doc/design/webui.md "Jumping to a message"): the target rows exist once the entry is
-	// loaded. Center the first of them, stop following the end, then fade the highlight.
+	// loaded. Center the first of them (a rail jump aligns it at the top), stop following the end, then fade
+	// the highlight. The token makes a second request for the same entry scroll again.
 	const focusToken = useRef(0);
 	useLayoutEffect(() => {
-		if (focusEntry === undefined || handledFocus.current === focusEntry) return;
-		const index = rows.findIndex((row) => row.kind === "item" && row.item.entryId === focusEntry);
+		if (focusRequest === undefined || handledFocus.current === focusRequest.token) return;
+		const index = rows.findIndex((row) => row.kind === "item" && row.item.entryId === focusRequest.entryId);
 		if (index === -1) {
 			// Process rows of a completed turn are folded behind its summary; open that
 			// turn so a hit on a thinking/tool entry has a row to scroll to.
@@ -462,7 +479,9 @@ export function Transcript({
 				(turn) =>
 					turn.foldable &&
 					!openTurns.has(turn.key) &&
-					[turn.user, turn.final, ...turn.process, ...turn.after].some((item) => item?.entryId === focusEntry),
+					[turn.user, turn.final, ...turn.process, ...turn.after].some(
+						(item) => item?.entryId === focusRequest.entryId,
+					),
 			);
 			if (folded !== undefined) {
 				setOpenTurns((previous) => {
@@ -473,17 +492,17 @@ export function Transcript({
 			}
 			return;
 		}
-		handledFocus.current = focusEntry;
+		handledFocus.current = focusRequest.token;
 		// Stop the initial "settle to the end" loop, otherwise it would keep pinning the
 		// view to the bottom while the jump is trying to center the target row.
 		settleToken.current += 1;
 		followingRef.current = false;
 		publishAtBottom(false);
-		setHighlighted(focusEntry);
+		setHighlighted(focusRequest.entryId);
 		const token = ++focusToken.current;
 		const scroll = () => {
 			if (focusToken.current !== token) return;
-			virtualizer.current?.scrollToIndex(index, { align: "center" });
+			virtualizer.current?.scrollToIndex(index, { align: focusRequest.align });
 		};
 		requestAnimationFrame(scroll);
 		// A page that was just prepended is measured after its first paint; align once more.
@@ -491,7 +510,7 @@ export function Transcript({
 		if (highlightTimer.current !== null) clearTimeout(highlightTimer.current);
 		highlightTimer.current = setTimeout(() => setHighlighted(null), HIGHLIGHT_MS);
 		return () => clearTimeout(settle);
-	}, [focusEntry, rows, turns, openTurns, publishAtBottom]);
+	}, [focusRequest, rows, turns, openTurns, publishAtBottom]);
 
 	useEffect(() => {
 		return () => {
@@ -499,45 +518,124 @@ export function Transcript({
 		};
 	}, []);
 
-	/** One display row. */
-	const renderRow = (row: TranscriptDisplayRow) =>
-		row.kind === "summary" ? (
-			<TurnSummaryRow
-				key={row.key}
-				durationMs={row.durationMs}
-				open={row.open}
-				onToggle={() => toggleTurn(row.turnKey)}
-			/>
-		) : row.kind === "retrying" ? (
-			<RetryingRow key={row.key} attempt={row.attempt} />
-		) : row.kind === "deliveries" ? (
-			<TurnDeliveries key={row.key} deliveries={row.deliveries} />
-		) : row.kind === "reply-actions" ? (
-			<ReplyActionsRow
-				key={row.key}
-				item={row.item}
-				canFork={canFork && row.forkable}
-				forkPending={forkPending}
-				onFork={onFork}
-			/>
-		) : (
-			<TranscriptRow
-				key={row.key}
-				item={row.item}
-				streams={streams}
-				sessionActive={sessionActive}
-				highlighted={highlighted !== null && row.item.entryId === highlighted}
-				finalReply={row.finalReply}
-				// The final answer's actions are their own row, after the delivered files.
-				showReplyActions={!row.finalReply}
-				canFork={canFork && row.forkable}
-				forkPending={forkPending}
-				onFork={onFork}
-			/>
+	// The turn rail's active mark: the user turn nearest the top third of the viewport. Walking the display
+	// rows back from that index also covers a row inside a turn, and before the first user row the first
+	// loaded turn is active. Recomputed on a throttled scroll and whenever the rows change.
+	const measureActive = useCallback(() => {
+		const handle = virtualizer.current;
+		if (handle === null || typeof handle.findItemIndex !== "function" || rows.length === 0) return;
+		const index = Math.min(
+			Math.max(handle.findItemIndex(handle.scrollOffset + handle.viewportSize / 3), 0),
+			rows.length - 1,
 		);
+		let entryId: string | null = null;
+		for (let cursor = index; cursor >= 0; cursor -= 1) {
+			const row = rows[cursor];
+			if (row?.kind === "item" && row.item.kind === "user" && row.item.entryId !== undefined) {
+				entryId = row.item.entryId;
+				break;
+			}
+		}
+		if (entryId === null) {
+			const first = rows.find(
+				(row) => row.kind === "item" && row.item.kind === "user" && row.item.entryId !== undefined,
+			);
+			entryId = first?.kind === "item" ? (first.item.entryId ?? null) : null;
+		}
+		setActiveEntryId((current) => (current === entryId ? current : entryId));
+	}, [rows]);
+
+	const scheduleActive = useCallback(() => {
+		if (activeFrame.current !== null) return;
+		activeFrame.current = requestAnimationFrame(() => {
+			activeFrame.current = null;
+			measureActive();
+		});
+	}, [measureActive]);
+
+	useEffect(() => {
+		scheduleActive();
+	}, [scheduleActive]);
+
+	useEffect(() => {
+		return () => {
+			if (activeFrame.current !== null) cancelAnimationFrame(activeFrame.current);
+		};
+	}, []);
+
+	// The rail is only mounted on a wide transcript (doc/design/webui.md "Turn rail"). The element's own width
+	// is the one that matters; an unmeasurable or layout-less environment falls back to the window width.
+	useEffect(() => {
+		const element = wrapperRef.current;
+		if (element === null) return;
+		const read = () => {
+			const width = element.clientWidth > 0 ? element.clientWidth : window.innerWidth;
+			const next = width >= TURN_RAIL_MIN_WIDTH;
+			setWide((current) => (current === next ? current : next));
+		};
+		read();
+		if (typeof ResizeObserver === "undefined") {
+			window.addEventListener("resize", read);
+			return () => window.removeEventListener("resize", read);
+		}
+		const observer = new ResizeObserver(read);
+		observer.observe(element);
+		window.addEventListener("resize", read);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", read);
+		};
+	}, []);
+
+	const railLoadedItems = useMemo(
+		() => items.flatMap((item) => (item.kind === "user" ? [{ entryId: item.entryId, text: item.text }] : [])),
+		[items],
+	);
+
+	const onScroll = (event: UIEvent<HTMLDivElement>) => {
+		const element = event.currentTarget;
+		if (element.scrollTop < 360) requestOlder();
+		const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= END_THRESHOLD;
+		const recentProgrammatic = performance.now() - programmaticAt.current < 150;
+		if (!recentProgrammatic) followingRef.current = atEnd;
+		publishAtBottom(atEnd);
+		scheduleActive();
+	};
+
+	/** One display row, centered on the session's shared column; the key stays on the outer element. */
+	const renderRow = (row: TranscriptDisplayRow) => {
+		const content =
+			row.kind === "summary" ? (
+				<TurnSummaryRow durationMs={row.durationMs} open={row.open} onToggle={() => toggleTurn(row.turnKey)} />
+			) : row.kind === "retrying" ? (
+				<RetryingRow attempt={row.attempt} />
+			) : row.kind === "deliveries" ? (
+				<TurnDeliveries deliveries={row.deliveries} />
+			) : row.kind === "reply-actions" ? (
+				<ReplyActionsRow item={row.item} canFork={canFork && row.forkable} forkPending={forkPending} onFork={onFork} />
+			) : (
+				<TranscriptRow
+					item={row.item}
+					streams={streams}
+					sessionActive={sessionActive}
+					highlighted={highlighted !== null && row.item.entryId === highlighted}
+					finalReply={row.finalReply}
+					// The final answer's actions are their own row, after the delivered files.
+					showReplyActions={!row.finalReply}
+					canFork={canFork && row.forkable}
+					forkPending={forkPending}
+					onFork={onFork}
+				/>
+			);
+		return (
+			<div key={row.key} className="mx-auto w-full max-w-(--session-column)">
+				{content}
+			</div>
+		);
+	};
 
 	return (
-		<div className="relative min-h-0 flex-1" data-slot="transcript">
+		<div ref={wrapperRef} className="relative min-h-0 flex-1" data-slot="transcript">
 			<div
 				ref={scrollRef}
 				data-testid="transcript-scroller"
@@ -554,16 +652,17 @@ export function Transcript({
 			>
 				<div ref={sentinelRef} aria-hidden="true" className="absolute top-0 left-0 h-px w-px" />
 				{loadingOlder && (
-					<div
-						data-testid="loading-older"
-						className="sticky top-0 z-10 flex items-center justify-center gap-2 border-b bg-background/85 py-1 text-xs text-muted-foreground backdrop-blur"
-					>
-						<LoaderCircleIcon className="size-3 animate-spin" aria-hidden="true" />
-						<Trans>Loading older messages…</Trans>
+					<div data-testid="loading-older" className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
+						<div className="mx-auto flex w-full max-w-(--session-column) items-center justify-center gap-2 py-1 text-xs text-muted-foreground">
+							<LoaderCircleIcon className="size-3 animate-spin" aria-hidden="true" />
+							<Trans>Loading older messages…</Trans>
+						</div>
 					</div>
 				)}
 				{ready && items.length === 0 && (
-					<div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">{empty}</div>
+					<div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+						<div className="mx-auto w-full max-w-(--session-column) text-center">{empty}</div>
+					</div>
 				)}
 				{items.length > 0 && (
 					<>
@@ -587,6 +686,16 @@ export function Transcript({
 					</>
 				)}
 			</div>
+			{wide && sessionId !== undefined && sessionId !== "" && onJumpToEntry !== undefined && (
+				<TurnRail
+					sessionId={sessionId}
+					historyCursor={historyCursor}
+					loadedItems={railLoadedItems}
+					activeEntryId={activeEntryId}
+					pendingEntryId={pendingEntryId}
+					onJumpToEntry={onJumpToEntry}
+				/>
+			)}
 			{!atBottom && (
 				<div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
 					<Button

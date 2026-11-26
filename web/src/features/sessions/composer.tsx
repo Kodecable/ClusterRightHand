@@ -207,9 +207,14 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 
 	if (!session.capabilities.chat) {
 		return (
-			<p className="shrink-0 border-t px-3 py-2 text-sm text-muted-foreground" data-slot="composer-readonly">
-				<Trans>You have view access: the owner can let you send messages by sharing it for chat.</Trans>
-			</p>
+			<div className="shrink-0 border-t">
+				<p
+					className="mx-auto w-full max-w-(--session-column) px-3 py-2 text-sm text-muted-foreground"
+					data-slot="composer-readonly"
+				>
+					<Trans>You have view access: the owner can let you send messages by sharing it for chat.</Trans>
+				</p>
+			</div>
 		);
 	}
 

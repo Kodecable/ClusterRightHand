@@ -637,6 +637,12 @@ The transcript is a virtual list. Older history is loaded when the reader scroll
 position is corrected explicitly after the new rows are measured, because the virtual list alone
 drifts while rows are measured.
 
+The transcript, its footer and the composer share one maximum column width. The scroller itself stays
+full width, so its scrollbar sits at the pane's edge, while every rendered row's content is centered in a
+column. The status line, background bar, composer and decision panel below the transcript center their
+content on the same column but keep their borders and backgrounds full-bleed. A narrow screen simply
+never reaches the cap.
+
 While the reader is at the bottom, new content keeps the view pinned. Any upward scroll stops following
 immediately and shows a **Jump to latest** button.
 
@@ -670,7 +676,23 @@ every viewer but the owner.
 
 A link to a message carries its entry id. The page loads older history until the entry appears, up to
 a fixed number of pages, expands a folded turn if needed, scrolls the entry into view and highlights it.
-The parameter is then removed from the URL, so a reload does not jump again.
+The parameter is then removed from the URL, so a reload does not jump again. A link centers the entry; a
+turn-rail mark aligns the user message at the top. A rail jump skips the URL parameter and the page
+budget — its entry is known to exist — but still stops, with the same error, once the history cursor says
+the start of history is reached.
+
+### Turn rail
+
+On a transcript at least 960 px wide, a thin rail of marks sits over its right edge, one mark per user
+message, oldest at the top. It appears only when it has at least two marks or another outline page may
+exist, so phones never see it. Hovering or focusing a mark shows a short preview and clicking it jumps to
+the turn; the mark of the turn at the top third of the viewport is highlighted as the reader scrolls.
+
+Loaded turns come from the transcript. Turns whose history is not loaded yet come from `GET
+/api/sessions/:id/outline`, paged on demand from the transcript's history cursor: each page holds the user
+messages before the cursor, cut to 50 code points with whitespace collapsed, and the rail asks for
+another page only when its own scroll reaches the top. A mark that is still loading history pulses. The
+two lists concatenate — outline turns are always older than the loaded ones — and dedupe by entry id.
 
 ### Session header
 

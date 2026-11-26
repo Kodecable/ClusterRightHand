@@ -58,17 +58,24 @@ export function BackgroundBar({
 	);
 	if (isMobile) {
 		return (
-			<div className="mx-3 mb-0 flex min-w-0 items-center gap-0.5 overflow-x-hidden rounded-xl bg-popover/80 backdrop-blur">
-				{content}
+			<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur">
+				<div
+					className="mx-auto flex w-full max-w-(--session-column) min-w-0 items-center gap-0.5 overflow-x-hidden"
+					data-testid="background-bar-content"
+				>
+					{content}
+				</div>
 			</div>
 		);
 	}
 	return (
-		<div
-			className="mx-3 mb-0 flex min-w-0 items-center gap-0.5 overflow-x-hidden rounded-xl bg-popover/80 backdrop-blur"
-			data-testid="background-bar-shell"
-		>
-			{content}
+		<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur" data-testid="background-bar-shell">
+			<div
+				className="mx-auto flex w-full max-w-(--session-column) min-w-0 items-center gap-0.5 overflow-x-hidden"
+				data-testid="background-bar-content"
+			>
+				{content}
+			</div>
 		</div>
 	);
 }

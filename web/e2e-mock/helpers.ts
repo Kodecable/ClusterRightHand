@@ -31,6 +31,7 @@ import type {
 	ScheduleView,
 	SessionExtension,
 	SessionListItem,
+	SessionOutlinePage,
 	SessionView,
 	SigningCredentialView,
 	SshCredential,
@@ -95,6 +96,8 @@ export interface FakeState {
 	events: Record<string, SessionEvent[]>;
 	/** The older history page served for `?before=<historyCursor>`. */
 	olderEntries: Record<string, { entries: SessionEntry[]; historyCursor: string | null }>;
+	/** Outline pages by session, then by `?before=` cursor (`""` when the request has none). */
+	outlines: Record<string, Record<string, SessionOutlinePage>>;
 	/** A session's jobs (`GET /api/jobs?session=…`), newest first. */
 	jobs: Record<string, JobView[]>;
 	approvals: ApprovalList;
@@ -629,6 +632,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		details: {},
 		events: {},
 		olderEntries: {},
+		outlines: {},
 		jobs: {},
 		approvals: QUOTA_APPROVALS,
 		tasks: [],
@@ -1883,6 +1887,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (entriesMatch) {
 			const id = decodeURIComponent(entriesMatch[1] as string);
 			return json(state.olderEntries[id] ?? { entries: [], historyCursor: null });
+		}
+
+		const outlineMatch = /^\/api\/sessions\/([^/]+)\/outline$/.exec(path);
+		if (outlineMatch) {
+			const id = decodeURIComponent(outlineMatch[1] as string);
+			const before = url.searchParams.get("before") ?? "";
+			return json(state.outlines[id]?.[before] ?? { turns: [], cursor: null });
 		}
 
 		const eventMatch = /^\/api\/sessions\/([^/]+)\/events$/.exec(path);

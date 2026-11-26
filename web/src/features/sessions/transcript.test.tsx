@@ -1,23 +1,45 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithI18n } from "@/test/render";
 import { Transcript } from "./transcript";
 import type { TranscriptItem } from "./transcript-items";
 import { TranscriptStreams } from "./transcript-streams";
 import { buildTranscriptTurns } from "./turns";
 
+/** The scroll requests the transcript sends through the virtualizer's handle. */
+const scrollCalls = vi.hoisted(() => ({
+	items: [] as { index: number; align: string | undefined }[],
+	/** The row index the handle's `findItemIndex` answers: the row at the viewport's top third. */
+	topThirdIndex: 0,
+}));
+
 // jsdom has no layout: render the virtualized rows directly so the anchor logic
 // can be driven with explicit rectangles.
 vi.mock("virtua", async () => {
 	const { createElement } = await import("react");
 	return {
-		Virtualizer: (props: { data: unknown[]; children: (item: unknown) => ReactNode }) =>
-			createElement(
+		Virtualizer: (props: {
+			data: unknown[];
+			children: (item: unknown) => ReactNode;
+			ref?: { current: unknown } | null;
+		}) => {
+			if (props.ref !== undefined && props.ref !== null) {
+				props.ref.current = {
+					scrollToIndex: (index: number, options?: { align?: string }) => {
+						scrollCalls.items.push({ index, align: options?.align });
+					},
+					findItemIndex: () => scrollCalls.topThirdIndex,
+					scrollOffset: 0,
+					viewportSize: 600,
+				};
+			}
+			return createElement(
 				"div",
 				null,
 				props.data.map((row) => props.children(row)),
-			),
+			);
+		},
 	};
 });
 
@@ -376,4 +398,124 @@ test("the running line follows the last row only while this session's own turn r
 		/>,
 	);
 	expect(screen.queryByTestId("transcript-running")).toBeNull();
+});
+
+test("a focus request scrolls again for every new token and honours its alignment", async () => {
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "1", entryId: "1", text: "one" },
+		{ kind: "user", key: "2", entryId: "2", text: "two" },
+		{ kind: "user", key: "3", entryId: "3", text: "three" },
+	];
+	const focus = (token: number, align: "center" | "start") => ({ entryId: "2", align, token });
+	scrollCalls.items.length = 0;
+	const view = renderWithI18n(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			running={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+			focusRequest={focus(1, "center")}
+		/>,
+	);
+	await waitFor(() => expect(scrollCalls.items.some((call) => call.index === 1 && call.align === "center")).toBe(true));
+
+	// The same entry with a new token scrolls again, this time aligned to the top for a rail jump.
+	view.rerender(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			running={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+			focusRequest={focus(2, "start")}
+		/>,
+	);
+	await waitFor(() => expect(scrollCalls.items.some((call) => call.index === 1 && call.align === "start")).toBe(true));
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 120));
+	});
+
+	// The same token is already handled: no further scroll.
+	const calls = scrollCalls.items.length;
+	view.rerender(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			running={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+			focusRequest={focus(2, "start")}
+		/>,
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 120));
+	});
+	expect(scrollCalls.items).toHaveLength(calls);
+});
+
+describe("the turn rail", () => {
+	const turnItems: TranscriptItem[] = [
+		{ kind: "user", key: "1", entryId: "1", text: "first question" },
+		{ kind: "text", key: "a1", entryId: "a1", text: "first answer", streaming: true, final: false },
+		{ kind: "user", key: "2", entryId: "2", text: "second question" },
+		{ kind: "text", key: "a2", entryId: "a2", text: "second answer", streaming: true, final: false },
+	];
+	const renderWithRail = () =>
+		renderWithI18n(
+			<Transcript
+				items={turnItems}
+				streams={new TranscriptStreams()}
+				ready
+				sessionActive
+				running={false}
+				hasOlder={false}
+				loadingOlder={false}
+				onLoadOlder={() => {}}
+				sessionId="s1"
+				historyCursor={null}
+				onJumpToEntry={() => {}}
+			/>,
+		);
+	const mark = (name: string) => screen.getByRole("button", { name: `Go to message: ${name}` });
+
+	afterEach(() => {
+		scrollCalls.topThirdIndex = 0;
+		vi.unstubAllGlobals();
+	});
+
+	test("marks the user turn whose rows reach the viewport's top third", async () => {
+		vi.stubGlobal("innerWidth", 1280);
+		// The top third is the second answer's row: its turn starts at the second question.
+		scrollCalls.topThirdIndex = 3;
+		renderWithRail();
+		await waitFor(() => expect(mark("second question")).toHaveAttribute("aria-current", "true"));
+		expect(mark("first question")).not.toHaveAttribute("aria-current");
+
+		// Scrolled back to the first answer: the first question's turn is active.
+		scrollCalls.topThirdIndex = 1;
+		fireEvent.scroll(screen.getByTestId("transcript-scroller"));
+		await waitFor(() => expect(mark("first question")).toHaveAttribute("aria-current", "true"));
+		expect(mark("second question")).not.toHaveAttribute("aria-current");
+	});
+
+	test("appears only on a transcript at least 960 px wide", async () => {
+		vi.stubGlobal("innerWidth", 959);
+		const narrow = renderWithRail();
+		expect(screen.queryByTestId("turn-rail")).toBeNull();
+		narrow.unmount();
+
+		vi.stubGlobal("innerWidth", 960);
+		renderWithRail();
+		expect(await screen.findByTestId("turn-rail")).toBeInTheDocument();
+	});
 });

@@ -267,6 +267,22 @@ export const SessionEntriesResponseSchema = z
 	})
 	.meta({ id: "SessionEntriesResponse" });
 
+/** One user message of `GET /api/sessions/{id}/outline` (doc/design/webui.md "Turn rail"). */
+export const SessionOutlineTurnSchema = z
+	.object({
+		entryId: z.number().describe("The user message's entry id; the history cursor's unit."),
+		text: z.string().describe("The typed text's first 50 characters (Unicode code points), whitespace collapsed."),
+		truncated: z.boolean().describe("Whether the typed text was longer than `text`."),
+	})
+	.meta({ id: "SessionOutlineTurn" });
+
+export const SessionOutlineResponseSchema = z
+	.object({
+		turns: z.array(SessionOutlineTurnSchema).describe("Oldest first."),
+		cursor: z.string().nullable().describe("Pass as `before` for the user messages before these; null at the start."),
+	})
+	.meta({ id: "SessionOutlineResponse" });
+
 /** One attachment the composer uploads to the owner's library or picks from it (doc/design/library.md "Chat attachments"). */
 export const ChatAttachmentInputSchema = z.object({
 	library: z.string().describe("`user:<username>` or `user_group:<user group name>`."),
@@ -378,6 +394,15 @@ export const SessionSearchQuerySchema = z.object({
 export const SessionEntriesQuerySchema = z.object({
 	before: z.string().optional().describe("The snapshot's or the previous page's `historyCursor`."),
 	limit: z.string().optional().describe("Page size, 1 to 200; 100 by default."),
+});
+
+/** Query parameters of `GET /api/sessions/{id}/outline`. */
+export const SessionOutlineQuerySchema = z.object({
+	before: z
+		.string()
+		.optional()
+		.describe("A `historyCursor` or the previous outline page's `cursor`; omitted starts at the newest entry."),
+	limit: z.string().optional().describe("Most user messages per page, 1 to 200; 200 by default."),
 });
 
 /** Query parameter of the event streams; omitted keeps the historical audience (all administrators). */

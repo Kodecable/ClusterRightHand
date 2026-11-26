@@ -15,10 +15,11 @@ function WaitingReason({ kind }: { kind: SessionWaitingKind }) {
 	return <Trans>The session is paused: its token quota is used up.</Trans>;
 }
 
-const LINE = "shrink-0 px-3 py-1 text-xs";
-const MUTED = `${LINE} bg-muted text-muted-foreground`;
-const WARN = `${LINE} bg-warn-bg/60 text-warn`;
-const DANGER = `${LINE} bg-danger-bg text-danger`;
+// The banner's background stays full-bleed; its text sits on the session page's shared column.
+const LINE = "mx-auto block w-full max-w-(--session-column) px-3 py-1 text-xs";
+const MUTED = "shrink-0 bg-muted text-muted-foreground";
+const WARN = "shrink-0 bg-warn-bg/60 text-warn";
+const DANGER = "shrink-0 bg-danger-bg text-danger";
 
 /**
  * The one single-line banner of the session page (doc/design/webui.md "Session header"): the
@@ -29,35 +30,43 @@ export function SessionBanner({ connection, failure, retry, waitingKind, queued 
 	if (connection !== "live") {
 		return (
 			<p className={MUTED} role="status">
-				{connection === "connecting" ? <Trans>Connecting…</Trans> : <Trans>Reconnecting…</Trans>}
+				<span className={LINE}>
+					{connection === "connecting" ? <Trans>Connecting…</Trans> : <Trans>Reconnecting…</Trans>}
+				</span>
 			</p>
 		);
 	}
 	if (failure !== undefined) {
 		return (
 			<p className={DANGER} role="alert">
-				{failure}
+				<span className={LINE}>{failure}</span>
 			</p>
 		);
 	}
 	if (retry !== undefined) {
 		return (
 			<p className={MUTED} role="status">
-				<Trans>Retrying after an error: {retry}</Trans>
+				<span className={LINE}>
+					<Trans>Retrying after an error: {retry}</Trans>
+				</span>
 			</p>
 		);
 	}
 	if (waitingKind !== null) {
 		return (
 			<p className={WARN} role="status" data-testid="waiting-reason">
-				<WaitingReason kind={waitingKind} />
+				<span className={LINE}>
+					<WaitingReason kind={waitingKind} />
+				</span>
 			</p>
 		);
 	}
 	if (queued > 0) {
 		return (
 			<p className={MUTED} role="status">
-				<Plural value={queued} one="# message queued" other="# messages queued" />
+				<span className={LINE}>
+					<Plural value={queued} one="# message queued" other="# messages queued" />
+				</span>
 			</p>
 		);
 	}

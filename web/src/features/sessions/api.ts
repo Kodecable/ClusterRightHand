@@ -4,6 +4,7 @@ import type {
 	SessionExtensionsResponse,
 	SessionListItem,
 	SessionListScope,
+	SessionOutlinePage,
 	SessionPatch,
 	SessionSearchPage,
 	SessionShare,
@@ -35,6 +36,7 @@ export const sessionKeys = {
 	search: (scope: string, q: string) => ["sessions", "search", { scope, q }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
 	entries: (id: string, before: string) => ["sessions", "entries", id, before] as const,
+	outline: (id: string, before: string | null) => ["sessions", "outline", id, before] as const,
 	shares: (id: string) => ["sessions", "shares", id] as const,
 	/** The draft's list: the extensions a new session of the caller reaches, all on. */
 	availableExtensions: () => ["sessions", "extensions"] as const,
@@ -296,6 +298,33 @@ export function useSessionHistoryPage(id: string | undefined, before: string | n
 		// on; it is fetched when requested and kept for the current view only.
 		staleTime: 0,
 		gcTime: 60_000,
+	});
+}
+
+/**
+ * The turn rail's outline pages (doc/design/webui.md "Turn rail"): the user messages strictly before `start`,
+ * newest chunk first, each page's `cursor` starting the next older one. `start` is the transcript's
+ * `historyCursor` captured when the rail first opens; a null start means all history is loaded and the query
+ * never runs. History before a cursor never changes, so a page stays fresh forever.
+ */
+export function useSessionOutline(id: string | undefined, start: string | null, enabled: boolean) {
+	return useInfiniteQuery<
+		SessionOutlinePage,
+		Error,
+		InfiniteData<SessionOutlinePage, string | null>,
+		readonly unknown[],
+		string | null
+	>({
+		queryKey: sessionKeys.outline(id ?? "", start),
+		enabled: enabled && id !== undefined && id !== "" && start !== null,
+		initialPageParam: start,
+		queryFn: ({ pageParam, signal }) =>
+			http.get<SessionOutlinePage>(
+				`/sessions/${enc(id ?? "")}/outline${queryString({ before: pageParam, limit: 200 })}`,
+				{ signal },
+			),
+		getNextPageParam: (page) => page.cursor,
+		staleTime: Number.POSITIVE_INFINITY,
 	});
 }
 
