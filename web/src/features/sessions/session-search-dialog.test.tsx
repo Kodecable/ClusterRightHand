@@ -23,6 +23,7 @@ function searchItem(overrides: Partial<SessionSearchItem> = {}): SessionSearchIt
 		shared: false,
 		state: "idle",
 		waitingKind: null,
+		jobs: { active: 0, awaitingUser: 0 },
 		unread: false,
 		updatedAt: "2026-01-02T00:00:00.000Z",
 		titleMatch: true,

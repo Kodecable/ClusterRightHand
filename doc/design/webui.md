@@ -615,6 +615,15 @@ answer or scheduled-run report delivered to the owner's chat counts as read too
 ([Messages](channels.md#messages)). A shared viewer never sees unread markers, because read state is
 stored once per session.
 
+Each row shows at most one leading indicator, in priority order: the yellow attention dot when the tree
+waits for the user — its aggregate `state` is `awaiting`, or a background job in the tree waits for an
+approval or a signature — then the spinner while the tree runs or has unsettled jobs, then the blue
+unread dot. The task state alone cannot express the first case: a tool's wait can outlive the turn that
+started it, leaving the session idle while its background job waits for an approval. The item's
+`jobs.active` and `jobs.awaitingUser` count the whole tree ([Session list API](#session-list-api)), and
+the tooltip and the dot's screen-reader text name the reason: the waiting kind, the job wait, "Running",
+"Background jobs running" or "Unread". A read idle row has no indicator, but its title keeps the slot.
+
 ### Session search
 
 `Ctrl+K` / `⌘K` opens session search from every page. Results are grouped by root session, with up to
@@ -630,6 +639,11 @@ drifts while rows are measured.
 
 While the reader is at the bottom, new content keeps the view pinned. Any upward scroll stops following
 immediately and shows a **Jump to latest** button.
+
+While this session's own turn runs — not its tree and not its background jobs — a left-aligned
+**Running…** line with a small spinner follows the last transcript row inside the scroller. It reuses the
+tool-call row's indentation, row height, font, size and muted colour, scrolls with the transcript, and
+disappears when the turn ends or the session waits.
 
 When an assistant message ends without tool calls, its text is the turn's final answer: the turn's
 intermediate work (thinking, tool calls, intermediate text) folds into one line with the turn's duration,
@@ -942,9 +956,15 @@ tree: waiting if any session waits, otherwise running if any runs, otherwise idl
 changes on state, title or message changes, not when a session is marked read, so reading a session
 does not reorder the list.
 
-The list stream sends an update whenever any session in a tree changes. The client places an update at
-its sorted position in the pages already loaded, rather than at the top, and drops an update that
-belongs beyond the loaded pages, which a later page fetch will bring.
+Each item also carries `jobs`: `active` is the number of unsettled jobs in the whole tree (waiting or
+running, a subagent's included), and `awaitingUser` is the subset waiting for the user's approval or
+signature. A job belongs to the tree of the root its `session_id` hangs under, so a stopped turn's
+background approval still counts for the root ([Sidebar list](#sidebar-list)).
+
+The list stream sends an update whenever any session in a tree changes, and whenever any job in a tree
+is created, changes state or wait, or settles. The client places an update at its sorted position in the
+pages already loaded, rather than at the top, and drops an update that belongs beyond the loaded pages,
+which a later page fetch will bring.
 
 A draft has no session to read, so its extensions come from `GET /api/sessions/extensions`: the
 caller's available extensions in the session view's shape, every entry on. The create request,

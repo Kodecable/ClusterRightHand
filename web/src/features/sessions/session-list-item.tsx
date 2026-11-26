@@ -5,15 +5,15 @@ import { LoaderCircleIcon } from "lucide-react";
 import { SessionStatusDot, StatusDot } from "@/components/status-badge";
 import { displaySessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
-import { waitingKindLabel } from "./session-item";
+import { sessionIndicator, sessionIndicatorLabel } from "./session-indicator";
 import { SessionMarkers } from "./session-markers";
 
 /**
- * One row of the session list (doc/design/webui.md "Sidebar list"): only the title, on one line, and a leading indicator for
- * the states that need attention. Running spins a small loader, awaiting keeps the amber dot, and an idle row
- * with unread output shows the blue dot. A read idle row has no indicator, but its title keeps the slot so every
- * title starts at the same place. Grey "Scheduled" / "Shared" badges sit at the right end of the line, and the
- * wait is the row's tooltip; the owner name and the relative time are dropped from the row.
+ * One row of the session list (doc/design/webui.md "Sidebar list"): only the title, on one line, and one leading
+ * indicator: the yellow dot while the tree or a background job waits for the user, the spinner while it runs,
+ * the blue dot for unread output. A read idle row has no indicator, but its title keeps the slot so every title
+ * starts at the same place. Grey "Scheduled" / "Shared" badges sit at the right end of the line, and the
+ * indicator's reason is the row's tooltip; the owner name and the relative time are dropped from the row.
  */
 export function SessionListItemRow({
 	item,
@@ -25,10 +25,11 @@ export function SessionListItemRow({
 	/** Roving tabindex: only the active row is reachable with Tab; arrows move it. */
 	tabIndex: number;
 }) {
-	const { t, i18n } = useLingui();
-	const wait = waitingKindLabel(item.waitingKind);
+	const { i18n } = useLingui();
 	const title = displaySessionTitle(item.title, i18n);
-	const tooltip = wait === undefined ? undefined : i18n._(wait);
+	const indicator = sessionIndicator(item);
+	const reason = indicator === null ? undefined : sessionIndicatorLabel(indicator.reason, item.waitingKind);
+	const tooltip = reason === undefined ? undefined : i18n._(reason);
 
 	// The extra height is the gap between rows. It sits outside the link so a
 	// selected row is an inset rounded rectangle, like the sidebar's active item.
@@ -45,6 +46,8 @@ export function SessionListItemRow({
 				data-state={item.state}
 				data-waiting-kind={item.waitingKind ?? undefined}
 				data-unread={item.unread ? "true" : "false"}
+				data-indicator={indicator?.kind ?? "none"}
+				data-indicator-reason={indicator?.reason}
 				aria-current={selected ? "page" : undefined}
 				title={tooltip}
 				tabIndex={tabIndex}
@@ -55,18 +58,14 @@ export function SessionListItemRow({
 			>
 				{/* The indicator's slot is always there, so an idle row's title lines up with a running one's. */}
 				<span className="inline-flex w-3 shrink-0 justify-center" data-testid="session-status-dot">
-					{item.state === "running" ? (
-						<LoaderCircleIcon
-							className="size-3 animate-spin text-muted-foreground"
-							role="img"
-							aria-label={t`Running`}
-						/>
-					) : item.state === "awaiting" ? (
-						<SessionStatusDot state={item.state} />
-					) : item.unread ? (
-						<StatusDot tone="info" label={t`Unread`} />
+					{indicator?.kind === "attention" ? (
+						<SessionStatusDot state="awaiting" />
+					) : indicator?.kind === "busy" ? (
+						<LoaderCircleIcon className="size-3 animate-spin text-muted-foreground" role="img" aria-label={tooltip} />
+					) : indicator?.kind === "unread" ? (
+						<StatusDot tone="info" label={tooltip} />
 					) : null}
-					{wait !== undefined && <span className="sr-only">{i18n._(wait)}</span>}
+					{indicator?.kind === "attention" && tooltip !== undefined && <span className="sr-only">{tooltip}</span>}
 				</span>
 				<span className="min-w-0 flex-1 truncate text-sm">{title}</span>
 				<SessionMarkers scheduled={item.scheduleId !== null} shared={item.shared} sharedBy={item.ownerName} />

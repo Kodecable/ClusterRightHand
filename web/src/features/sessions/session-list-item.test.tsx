@@ -13,6 +13,7 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 	shared: false,
 	state: "idle",
 	waitingKind: null,
+	jobs: { active: 0, awaitingUser: 0 },
 	unread: false,
 	updatedAt: new Date().toISOString(),
 	...overrides,
@@ -70,6 +71,51 @@ describe("SessionListItemRow", () => {
 		expect(screen.getByRole("img", { name: "Awaiting" })).toBeInTheDocument();
 		expect(screen.getByTestId("session-item")).toHaveAttribute("title", "Waiting for a quota decision");
 		expect(screen.getByTestId("session-status-dot")).toHaveTextContent("Waiting for a quota decision");
+	});
+
+	test("a background job waiting for the user shows the yellow dot and names that reason", async () => {
+		await renderWithRouter(
+			<SessionListItemRow
+				item={item({ state: "idle", jobs: { active: 1, awaitingUser: 1 } })}
+				selected={false}
+				tabIndex={-1}
+			/>,
+		);
+		// The session is idle; the job's wait still gets the attention dot, not the spinner or unread dot.
+		expect(screen.getByRole("img", { name: "Awaiting" })).toBeInTheDocument();
+		expect(screen.getByTestId("session-item")).toHaveAttribute("title", "A background job is waiting for you");
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-indicator", "attention");
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-indicator-reason", "job-awaiting");
+	});
+
+	test("background jobs running show the spinner, labelled for the jobs", async () => {
+		await renderWithRouter(
+			<SessionListItemRow
+				item={item({ state: "idle", jobs: { active: 2, awaitingUser: 0 } })}
+				selected={false}
+				tabIndex={-1}
+			/>,
+		);
+		const spinner = screen.getByRole("img", { name: "Background jobs running" });
+		expect(spinner).toHaveClass("animate-spin", "size-3");
+		expect(screen.getByTestId("session-item")).toHaveAttribute("title", "Background jobs running");
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-indicator", "busy");
+		expect(screen.queryByRole("img", { name: "Unread" })).not.toBeInTheDocument();
+	});
+
+	test("renders exactly one indicator whatever the state, jobs and unread combination", async () => {
+		await renderWithRouter(
+			<SessionListItemRow
+				item={item({ state: "awaiting", unread: true, jobs: { active: 2, awaitingUser: 2 } })}
+				selected={false}
+				tabIndex={-1}
+			/>,
+		);
+		const slot = screen.getByTestId("session-status-dot");
+		expect(slot.querySelectorAll("[role='img']")).toHaveLength(1);
+		expect(screen.getByRole("img", { name: "Awaiting" })).toBeInTheDocument();
+		expect(screen.queryByRole("img", { name: "Unread" })).not.toBeInTheDocument();
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-indicator", "attention");
 	});
 
 	test("scheduled and shared sessions get grey badges at the end of the line", async () => {

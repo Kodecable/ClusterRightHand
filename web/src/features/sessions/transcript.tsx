@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { TurnDeliveries } from "./deliveries";
 import type { DeliveryDetails } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";
-import { ReplyActionsRow, RetryingRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
+import { ReplyActionsRow, RetryingRow, RunningRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
 import { buildTranscriptTurns } from "./turns";
 
@@ -67,6 +67,7 @@ export function Transcript({
 	streams,
 	ready,
 	sessionActive,
+	running,
 	hasOlder,
 	loadingOlder,
 	onLoadOlder,
@@ -81,6 +82,11 @@ export function Transcript({
 	ready: boolean;
 	/** Whether the session is running or awaiting: a call without a result cannot return once it is idle. */
 	sessionActive: boolean;
+	/**
+	 * Whether this session's own turn is running: the running line at the end. It is not the tree's state and
+	 * not the background jobs, which keep running after the turn ended (doc/design/webui.md "Message view").
+	 */
+	running: boolean;
 	hasOlder: boolean;
 	loadingOlder: boolean;
 	onLoadOlder: () => void;
@@ -108,6 +114,8 @@ export function Transcript({
 	const initialScrollDone = useRef(false);
 	const prevFirstId = useRef<string | null>(null);
 	const prevLength = useRef(0);
+	/** The previous running flag, so the running line's appearance and removal re-pin the end, not every render. */
+	const prevRunning = useRef(running);
 	const settleToken = useRef(0);
 	const programmaticAt = useRef(0);
 	const prependAnchor = useRef<PrependAnchor | null>(null);
@@ -247,6 +255,14 @@ export function Transcript({
 		if (prepended) return;
 		if (followingRef.current && appended) pinToEnd();
 	}, [items.length, items, pinToEnd]);
+
+	// The running line appears when this turn starts and disappears when it ends or waits. While following,
+	// the view stays at the end across both changes.
+	useLayoutEffect(() => {
+		if (prevRunning.current === running) return;
+		prevRunning.current = running;
+		if (followingRef.current) pinToEnd();
+	}, [running, pinToEnd]);
 
 	// A prepended history page: re-align the recorded anchor until the new rows
 	// have been measured, then let go. The anchor belongs to the page that was
@@ -550,20 +566,25 @@ export function Transcript({
 					<div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">{empty}</div>
 				)}
 				{items.length > 0 && (
-					<Virtualizer
-						ref={virtualizer}
-						data={rows}
-						itemSize={120}
-						bufferSize={600}
-						shift={shift}
-						onResize={() => {
-							// Measurement changes the content height after the first paint; at
-							// the bottom the view follows the end, scrolled up it stays put.
-							if (followingRef.current) requestAnimationFrame(pinToEnd);
-						}}
-					>
-						{renderRow}
-					</Virtualizer>
+					<>
+						<Virtualizer
+							ref={virtualizer}
+							data={rows}
+							itemSize={120}
+							bufferSize={600}
+							shift={shift}
+							onResize={() => {
+								// Measurement changes the content height after the first paint; at
+								// the bottom the view follows the end, scrolled up it stays put.
+								if (followingRef.current) requestAnimationFrame(pinToEnd);
+							}}
+						>
+							{renderRow}
+						</Virtualizer>
+						{/* The line is inside the scroller, after every row, so it scrolls with the transcript and
+						    the follow-to-end measurement includes it (doc/design/webui.md "Message view"). */}
+						{running && <RunningRow />}
+					</>
 				)}
 			</div>
 			{!atBottom && (

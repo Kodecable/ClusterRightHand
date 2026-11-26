@@ -307,6 +307,10 @@ msgstr "7 天"
 msgid "90 days"
 msgstr "90 天"
 
+#: src/features/sessions/session-indicator.ts
+msgid "A background job is waiting for you"
+msgstr "有后台任务等待你处理"
+
 #: src/features/settings/providers.ts
 msgid "A base URL is required."
 msgstr "必须填写 Base URL。"
@@ -1073,6 +1077,10 @@ msgstr "后台任务已完成："
 #: src/features/sessions/background-bar.tsx
 msgid "Background jobs"
 msgstr "后台任务"
+
+#: src/features/sessions/session-indicator.ts
+msgid "Background jobs running"
+msgstr "后台任务运行中"
 
 #: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
@@ -5130,7 +5138,7 @@ msgstr "运行中"
 
 #: src/components/status-badge.tsx
 #: src/features/jobs/job.tsx
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-indicator.ts
 #: src/features/sessions/tool-card.tsx
 #: src/features/terminals/terminal-format.ts
 msgid "Running"
@@ -5139,6 +5147,10 @@ msgstr "运行中"
 #: src/features/auth/login-page.tsx
 msgid "Running a security check…"
 msgstr "正在进行安全验证…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Running…"
+msgstr "运行中……"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "runs a build that is not a release"
@@ -6641,7 +6653,7 @@ msgstr "取消关联 {0}"
 msgid "Unprivileged identity"
 msgstr "非特权身份"
 
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-indicator.ts
 msgid "Unread"
 msgstr "未读"
 
@@ -6959,6 +6971,7 @@ msgid "Waiting for the terminal to open…"
 msgstr "正在等待终端打开…"
 
 #: src/features/approvals/pages.tsx
+#: src/features/sessions/session-indicator.ts
 msgid "Waiting for you"
 msgstr "等待你处理"
 

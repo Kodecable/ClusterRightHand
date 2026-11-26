@@ -20,6 +20,7 @@ import {
 	toolResultFailure,
 	toolResultOutcome,
 } from "./tool-failure";
+import { TranscriptLine } from "./transcript-line";
 
 /** How often an open call re-reads the task or task group it follows. */
 const FOLLOW_INTERVAL_MS = 5000;
@@ -196,66 +197,58 @@ export function ToolCard({
 
 	return (
 		<div className="text-xs" data-testid="tool-card" data-tool-status={status}>
-			<div className="flex items-center gap-1">
-				<button
-					type="button"
-					data-testid="tool-toggle"
-					aria-haspopup="dialog"
-					onClick={() => setOpen(true)}
-					className="group flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-				>
-					<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
-					<span className="min-w-0 flex-1 truncate font-mono text-xs" title={todoLabel ?? line}>
-						{todoLabel !== undefined ? (
-							<span data-testid="todo-tool-summary">{todoLabel}</span>
-						) : (
-							<>
-								<span className="font-medium">{item.name}</span>
-								{image === undefined ? (
-									rest
-								) : (
-									<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
-										{"library" in image.source ? (
-											<InternalLink
-												to="/library/$library"
-												params={{ library: image.source.library }}
-												search={{
-													path: image.source.path.includes("/")
-														? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
-														: "",
-												}}
-												title={image.source.path}
-											>
-												{image.source.library}
-											</InternalLink>
-										) : (
-											<span title={image.source.path}>{image.source.node}</span>
-										)}
-										<span className="text-muted-foreground">{image.source.path}</span>
-										<span>
-											{image.width}×{image.height}
-										</span>
-										<span>{formatBytes(image.bytes, i18n.locale)}</span>
-										<span className="font-mono text-muted-foreground" title={image.sha256}>
-											{image.sha256.slice(0, 12)}
-										</span>
+			<TranscriptLine onClick={() => setOpen(true)} testId="tool-toggle">
+				<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
+				<span className="min-w-0 flex-1 truncate font-mono text-xs" title={todoLabel ?? line}>
+					{todoLabel !== undefined ? (
+						<span data-testid="todo-tool-summary">{todoLabel}</span>
+					) : (
+						<>
+							<span className="font-medium">{item.name}</span>
+							{image === undefined ? (
+								rest
+							) : (
+								<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
+									{"library" in image.source ? (
+										<InternalLink
+											to="/library/$library"
+											params={{ library: image.source.library }}
+											search={{
+												path: image.source.path.includes("/")
+													? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
+													: "",
+											}}
+											title={image.source.path}
+										>
+											{image.source.library}
+										</InternalLink>
+									) : (
+										<span title={image.source.path}>{image.source.node}</span>
+									)}
+									<span className="text-muted-foreground">{image.source.path}</span>
+									<span>
+										{image.width}×{image.height}
 									</span>
-								)}
-							</>
-						)}
+									<span>{formatBytes(image.bytes, i18n.locale)}</span>
+									<span className="font-mono text-muted-foreground" title={image.sha256}>
+										{image.sha256.slice(0, 12)}
+									</span>
+								</span>
+							)}
+						</>
+					)}
+				</span>
+				{jobUnsettled && jobView !== undefined && (
+					<span data-testid="tool-job-state" className="shrink-0 text-xs text-muted-foreground">
+						<Trans>Background</Trans> · {jobStateText(i18n, jobView)}
 					</span>
-					{jobUnsettled && jobView !== undefined && (
-						<span data-testid="tool-job-state" className="shrink-0 text-xs text-muted-foreground">
-							<Trans>Background</Trans> · {jobStateText(i18n, jobView)}
-						</span>
-					)}
-					{reviewing && (
-						<span data-testid="tool-reviewing" className="shrink-0 text-xs text-muted-foreground">
-							<Trans>Auto Review is reviewing…</Trans>
-						</span>
-					)}
-				</button>
-			</div>
+				)}
+				{reviewing && (
+					<span data-testid="tool-reviewing" className="shrink-0 text-xs text-muted-foreground">
+						<Trans>Auto Review is reviewing…</Trans>
+					</span>
+				)}
+			</TranscriptLine>
 			<ToolDialog item={item} job={jobView} open={open} onOpenChange={setOpen} />
 		</div>
 	);

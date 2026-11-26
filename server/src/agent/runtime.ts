@@ -283,6 +283,13 @@ export class AgentRuntime {
 		// (doc/design/jobs.md "Completion notices"). The runtime supplies the delivery; the job layer only says
 		// when a job settled.
 		jobs.attachNoticeSink((job) => jobNoticeSettled(runtime.#host, job));
+		// A job is part of its session tree's list item (doc/design/webui.md "Session list API"): its creation,
+		// every state or wait change and its settle publish the tree's root through the same coalesced path a
+		// session state change takes. A job a subagent started publishes its own session, which resolves to the
+		// root below; an MCP client's job has no session and stays out of the list.
+		jobs.onChanged((job) => {
+			if (job.session_id !== null) runtime.#sessionList.publishSession(job.session_id);
+		});
 		// One extension per row, empty until its first tool listing arrives: a session selects the extensions
 		// it may use by name, and the tools appear once the MCP server is connected or the built-in supplies
 		// them (doc/design/extensions.md).

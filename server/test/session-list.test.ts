@@ -91,6 +91,42 @@ async function seed(
 	return sessionId;
 }
 
+/**
+ * Inserts one job row directly, so a tree's job counts are exactly what a test needs: an unsettled job for
+ * `active`, a waiting approval or signature for `awaitingUser`, and a settled one that neither counts.
+ */
+async function seedJob(
+	sessionId: string | null,
+	state: "waiting" | "running" | "settled",
+	wait: "approval" | "signature" | "quota" | "decision" | null,
+	jobId = newId(),
+): Promise<string> {
+	await db
+		.insertInto("jobs")
+		.values({
+			id: jobId,
+			org_id: orgId,
+			actor_type: "session",
+			actor_id: sessionId ?? "mcp",
+			on_behalf_of_user_id: user.alice?.userId ?? "",
+			session_id: sessionId,
+			call_key: `call-${jobId}`,
+			kind: "exec",
+			resource_type: "task",
+			resource_id: `task-${jobId}`,
+			action: JSON.stringify({ type: "exec", command: "true" }),
+			state,
+			outcome: state === "settled" ? JSON.stringify({ kind: "succeeded", failed: false }) : null,
+			wait,
+			result: null,
+			notice: "none",
+			created_at: "2026-07-01T00:00:00.000Z",
+			settled_at: state === "settled" ? "2026-07-01T00:01:00.000Z" : null,
+		})
+		.execute();
+	return jobId;
+}
+
 const newSession = async (who: string, title: string): Promise<string> => {
 	// Setup only: the HTTP create route now always submits a first message, while most list tests just
 	// need a session; the runtime creates it without a run.
@@ -298,6 +334,7 @@ describe("GET /api/sessions", () => {
 			shared: false,
 			state: "idle",
 			waitingKind: null,
+			jobs: { active: 0, awaitingUser: 0 },
 			unread: false,
 			updatedAt: expect.any(String) as string,
 		});
@@ -683,6 +720,111 @@ describe("GET /api/sessions", () => {
 		const all = await plan(user.root as SessionUser, "all");
 		expect(all).toContain("sessions_parent_updated_idx");
 		expect(all).not.toContain("TEMP B-TREE");
+	});
+});
+
+describe("jobs in the session list", () => {
+	const itemOf = async (who: string, sessionId: string): Promise<SessionListItem> => {
+		const item = (await list(who)).items.find((candidate) => candidate.id === sessionId);
+		if (!item) throw new Error("the session is not in the list");
+		return item;
+	};
+
+	it("counts a root's and a subagent's jobs over the whole tree", async () => {
+		const root = await seed(id.alice as string, "jobs root", "2026-08-01T00:00:00.000Z");
+		const child = await seed(id.alice as string, "jobs child", "2026-08-01T00:00:01.000Z", {
+			parentSessionId: root,
+			rootSessionId: root,
+		});
+		const other = await seed(id.alice as string, "jobs other", "2026-08-01T00:00:02.000Z");
+		await seedJob(root, "running", null);
+		await seedJob(child, "waiting", "approval");
+
+		expect((await itemOf("alice", root)).jobs).toEqual({ active: 2, awaitingUser: 1 });
+		// The child never appears in the list, and another root's tree sees none of it.
+		expect((await list("alice")).items.map((item) => item.id)).not.toContain(child);
+		expect((await itemOf("alice", other)).jobs).toEqual({ active: 0, awaitingUser: 0 });
+	});
+
+	it("counts an approval and a signature as the user's wait, but not a quota or decision wait", async () => {
+		const root = await seed(id.alice as string, "wait kinds", "2026-08-02T00:00:00.000Z");
+		await seedJob(root, "waiting", "approval");
+		await seedJob(root, "waiting", "signature");
+		await seedJob(root, "waiting", "quota");
+		await seedJob(root, "waiting", "decision");
+		expect((await itemOf("alice", root)).jobs).toEqual({ active: 4, awaitingUser: 2 });
+	});
+
+	it("does not count a settled job even when its last wait was the user's", async () => {
+		const root = await seed(id.alice as string, "settled job", "2026-08-03T00:00:00.000Z");
+		await seedJob(root, "settled", "approval");
+		expect((await itemOf("alice", root)).jobs).toEqual({ active: 0, awaitingUser: 0 });
+	});
+
+	it("pushes the root's item when a job is created, waits for approval and settles", async () => {
+		await waitFor("no leftover streams", () => runtime.sessionList.subscriberCount === 0);
+		const jobs = runtime.jobs;
+		if (!jobs) throw new Error("the runtime did not create a job service");
+		const root = await seed(id.alice as string, "job stream root", "2026-08-04T00:00:00.000Z");
+		const child = await seed(id.alice as string, "job stream child", "2026-08-04T00:00:01.000Z", {
+			parentSessionId: root,
+			rootSessionId: root,
+		});
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", child).execute();
+		await sleep(50);
+		const alice = await openStream("alice");
+		await waitFor("one stream subscribed", () => runtime.sessionList.subscriberCount === 1);
+		const nextRootItem = async (predicate: (item: SessionListItem) => boolean): Promise<SessionListItem> => {
+			const deadline = Date.now() + 3_000;
+			for (;;) {
+				const event = await alice.next(Math.max(1, deadline - Date.now()));
+				if (!event) throw new Error("timed out waiting for the job's upsert");
+				if (event.event !== "upsert") continue;
+				const item = JSON.parse(event.data) as SessionListItem;
+				if (item.id === root && predicate(item)) return item;
+			}
+		};
+		try {
+			const job = await jobs.ensure({
+				kind: "subagent",
+				callKey: "stream-job-child",
+				actor: { type: "subagent", id: child, onBehalfOfUserId: id.alice as string },
+				sessionId: child,
+				resourceType: "session",
+				resourceId: child,
+				action: { type: "subagent", task: "child task" },
+			});
+			expect((await nextRootItem((item) => item.jobs.active === 1)).jobs).toEqual({
+				active: 1,
+				awaitingUser: 0,
+			});
+
+			await db
+				.updateTable("sessions")
+				.set({ state: "awaiting", waiting_kind: "approval" })
+				.where("id", "=", child)
+				.execute();
+			await jobs.project(job);
+			expect((await nextRootItem((item) => item.jobs.awaitingUser === 1)).jobs).toEqual({
+				active: 1,
+				awaitingUser: 1,
+			});
+
+			// A live wait collects the settle's notice, so the test does not wake the child.
+			const collect = jobs.beginWait(job.id);
+			try {
+				await db.updateTable("sessions").set({ state: "idle", waiting_kind: null }).where("id", "=", child).execute();
+				await jobs.project(job);
+			} finally {
+				collect();
+			}
+			expect((await nextRootItem((item) => item.jobs.active === 0)).jobs).toEqual({
+				active: 0,
+				awaitingUser: 0,
+			});
+		} finally {
+			alice.close();
+		}
 	});
 });
 

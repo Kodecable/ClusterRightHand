@@ -42,6 +42,10 @@ export interface SessionItemRow {
 	schedule_id: string | null;
 	state: SessionState;
 	waiting_kind: WaitingKind | null;
+	/** Unsettled jobs of the whole tree (doc/design/jobs.md "States"). */
+	jobs_active: number;
+	/** Unsettled jobs of the whole tree whose wait is the user's (an approval or a signature). */
+	jobs_awaiting_user: number;
 	updated_at: string;
 	display_name: string;
 	username: string;
@@ -95,6 +99,30 @@ export const TREE_WAITING_KIND = sql<WaitingKind | null>`case
 end`;
 
 /**
+ * A count over the jobs whose session belongs to the outer row's tree, computed in the same place as
+ * `TREE_STATE` (doc/design/jobs.md "States"): a job a subagent started counts for the root, so the sidebar
+ * can show background work while no session runs. One index lookup per count (`jobs_session_state_idx` and
+ * `sessions_root_state_idx`), no per-row query.
+ */
+function treeJobCount(condition: RawBuilder<unknown>): RawBuilder<number> {
+	return sql<number>`(
+		select count(*) from jobs
+		where ${condition}
+			and jobs.session_id in (
+				select tree.id from sessions as tree where tree.root_session_id = sessions.id
+			)
+	)`;
+}
+
+/** The tree's unsettled jobs: waiting or running (doc/design/jobs.md "States"). */
+export const TREE_ACTIVE_JOBS = treeJobCount(sql`jobs.state != 'settled'`);
+
+/** The tree's jobs whose wait is the user's: an approval or a signature. */
+export const TREE_AWAITING_USER_JOBS = treeJobCount(
+	sql`jobs.state = 'waiting' and jobs.wait in ('approval', 'signature')`,
+);
+
+/**
  * The list query without its page size: the route adds `limit`, and the test explains the same query with
  * EXPLAIN QUERY PLAN. `all` is administrators only and is checked here again, not only in the route.
  */
@@ -136,6 +164,8 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			"sessions.schedule_id",
 			TREE_STATE.as("state"),
 			TREE_WAITING_KIND.as("waiting_kind"),
+			TREE_ACTIVE_JOBS.as("jobs_active"),
+			TREE_AWAITING_USER_JOBS.as("jobs_awaiting_user"),
 			"sessions.updated_at",
 			"sessions.reply_at",
 			"sessions.owner_read_at",
@@ -202,6 +232,7 @@ export function sessionListItem(
 		shared: shared && !isOwner,
 		state: row.state,
 		waitingKind: row.waiting_kind,
+		jobs: { active: row.jobs_active, awaitingUser: row.jobs_awaiting_user },
 		unread,
 		updatedAt: row.updated_at,
 	};

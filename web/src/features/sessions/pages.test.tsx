@@ -184,6 +184,7 @@ function item(overrides: Partial<SessionListItem> = {}): SessionListItem {
 		shared: false,
 		state: "idle",
 		waitingKind: null,
+		jobs: { active: 0, awaitingUser: 0 },
 		unread: false,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
@@ -628,6 +629,30 @@ describe("SessionPage layout", () => {
 		});
 		expect(screen.queryByText("Working…")).not.toBeInTheDocument();
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
+	});
+
+	test("the running line follows this session's own running turn, not the tree or a wait", async () => {
+		const { client } = await renderSessionPage({
+			session: sessionView({ state: "running" }),
+			treeRow: item({ state: "idle" }),
+		});
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		await emitSnapshot(source, [userEntry("1", "hello")], null);
+		expect(await screen.findByTestId("transcript-running")).toHaveTextContent("Running…");
+
+		// Awaiting is no longer running: the wait takes over and the running line goes.
+		act(() => {
+			client.setQueryData(sessionKeys.detail("s1"), sessionView({ state: "awaiting", waitingKind: "approval" }));
+		});
+		await waitFor(() => expect(screen.queryByTestId("transcript-running")).toBeNull());
+
+		// This session is idle while its tree runs: still no line, because the line is this turn's own.
+		act(() => {
+			client.setQueryData(sessionKeys.detail("s1"), sessionView({ state: "idle" }));
+			publishSessionListUpsert(item({ state: "running" }));
+		});
+		await waitFor(() => expect(screen.queryByTestId("transcript-running")).toBeNull());
 	});
 
 	test("a terminal stream error replaces the stale page with its error state", async () => {

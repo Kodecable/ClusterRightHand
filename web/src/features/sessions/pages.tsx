@@ -237,6 +237,8 @@ export function SessionPage() {
 					ready={events.state.ready}
 					// The page's live state decides whether a call without a result can still return.
 					sessionActive={sessionUiState(view.state) !== "idle"}
+					// Only this session's own running turn gets the running line; awaiting and background jobs do not.
+					running={sessionUiState(view.state) === "running"}
 					hasOlder={events.state.historyCursor !== null}
 					loadingOlder={history.isFetching}
 					onLoadOlder={() => setWantsOlder(true)}

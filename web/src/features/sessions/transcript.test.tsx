@@ -51,6 +51,7 @@ test("an anchor survives a streaming append and is applied only after the reques
 			streams={streams}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder
 			loadingOlder={false}
 			onLoadOlder={onLoadOlder}
@@ -83,6 +84,7 @@ test("an anchor survives a streaming append and is applied only after the reques
 			streams={streams}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder
 			loadingOlder={false}
 			onLoadOlder={onLoadOlder}
@@ -104,6 +106,7 @@ test("an anchor survives a streaming append and is applied only after the reques
 			streams={streams}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder
 			loadingOlder={false}
 			onLoadOlder={onLoadOlder}
@@ -128,6 +131,7 @@ test("shows the retry attempt at the end of a running turn and hides it when a m
 			streams={streams}
 			ready
 			sessionActive
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -142,6 +146,7 @@ test("shows the retry attempt at the end of a running turn and hides it when a m
 			streams={streams}
 			ready
 			sessionActive
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -156,6 +161,7 @@ test("shows the retry attempt at the end of a running turn and hides it when a m
 			streams={streams}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -178,6 +184,7 @@ test("a copy action sits under the user message and the final reply, never under
 			streams={new TranscriptStreams()}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -234,6 +241,7 @@ test("a turn's delivered files sit between its final answer and the reply's acti
 			streams={new TranscriptStreams()}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -264,6 +272,7 @@ test("the owner's fork action sits under an ended turn's final reply only", () =
 			streams={new TranscriptStreams()}
 			ready
 			sessionActive={false}
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -283,6 +292,7 @@ test("the owner's fork action sits under an ended turn's final reply only", () =
 			streams={new TranscriptStreams()}
 			ready
 			sessionActive
+			running={false}
 			hasOlder={false}
 			loadingOlder={false}
 			onLoadOlder={() => {}}
@@ -308,4 +318,62 @@ test("a notice line starts its own turn, so the previous turn still folds and th
 	expect(turns[1]?.user).toBeUndefined();
 	expect(turns[1]?.body.map((item) => item.kind)).toEqual(["notice", "text"]);
 	expect(turns[1]?.foldable).toBe(false);
+});
+
+test("the running line follows the last row only while this session's own turn runs", () => {
+	const streams = new TranscriptStreams();
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "do it" },
+		{ kind: "thinking", key: "t1", text: "hmm", streaming: false },
+	];
+	const view = renderWithI18n(
+		<Transcript
+			items={items}
+			streams={streams}
+			ready
+			sessionActive
+			running
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	const line = screen.getByTestId("transcript-running");
+	expect(line).toHaveTextContent("Running…");
+	expect(line.querySelector(".animate-spin")).not.toBeNull();
+	// Inside the scroller, after the last transcript row, so it scrolls with the content.
+	expect(screen.getByTestId("transcript-scroller")).toContainElement(line);
+	const lastRow = screen.getAllByTestId("message").at(-1);
+	expect(lastRow).toBeDefined();
+	expect((lastRow?.compareDocumentPosition(line) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+	// Idle: the turn ended and the line goes.
+	view.rerender(
+		<Transcript
+			items={items}
+			streams={streams}
+			ready
+			sessionActive={false}
+			running={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.queryByTestId("transcript-running")).toBeNull();
+
+	// Awaiting: the session is active but no turn runs, so the line stays away.
+	view.rerender(
+		<Transcript
+			items={items}
+			streams={streams}
+			ready
+			sessionActive
+			running={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.queryByTestId("transcript-running")).toBeNull();
 });

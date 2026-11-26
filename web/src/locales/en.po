@@ -307,6 +307,10 @@ msgstr "7d"
 msgid "90 days"
 msgstr "90 days"
 
+#: src/features/sessions/session-indicator.ts
+msgid "A background job is waiting for you"
+msgstr "A background job is waiting for you"
+
 #: src/features/settings/providers.ts
 msgid "A base URL is required."
 msgstr "A base URL is required."
@@ -1073,6 +1077,10 @@ msgstr "Background job finished:"
 #: src/features/sessions/background-bar.tsx
 msgid "Background jobs"
 msgstr "Background jobs"
+
+#: src/features/sessions/session-indicator.ts
+msgid "Background jobs running"
+msgstr "Background jobs running"
 
 #: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
@@ -5130,7 +5138,7 @@ msgstr "running"
 
 #: src/components/status-badge.tsx
 #: src/features/jobs/job.tsx
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-indicator.ts
 #: src/features/sessions/tool-card.tsx
 #: src/features/terminals/terminal-format.ts
 msgid "Running"
@@ -5139,6 +5147,10 @@ msgstr "Running"
 #: src/features/auth/login-page.tsx
 msgid "Running a security check…"
 msgstr "Running a security check…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Running…"
+msgstr "Running…"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "runs a build that is not a release"
@@ -6641,7 +6653,7 @@ msgstr "Unlink {0}"
 msgid "Unprivileged identity"
 msgstr "Unprivileged identity"
 
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-indicator.ts
 msgid "Unread"
 msgstr "Unread"
 
@@ -6959,6 +6971,7 @@ msgid "Waiting for the terminal to open…"
 msgstr "Waiting for the terminal to open…"
 
 #: src/features/approvals/pages.tsx
+#: src/features/sessions/session-indicator.ts
 msgid "Waiting for you"
 msgstr "Waiting for you"
 

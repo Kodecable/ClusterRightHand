@@ -360,6 +360,7 @@ export function sessionListItemFromView(session: SessionView): SessionListItem {
 		shared: false,
 		state: session.state,
 		waitingKind: session.waitingKind,
+		jobs: { active: 0, awaitingUser: 0 },
 		unread: false,
 		updatedAt: session.updatedAt,
 	};

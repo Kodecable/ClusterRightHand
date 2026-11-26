@@ -15,6 +15,7 @@ import { AttachmentChip } from "./attachment-chip";
 import { MessageActions, MessageTime, replyFinishedAt } from "./message-actions";
 import { ToolCard } from "./tool-card";
 import type { NoticeItem, TranscriptItem } from "./transcript-items";
+import { TranscriptLine } from "./transcript-line";
 import type { TranscriptStreams } from "./transcript-streams";
 
 /** The completed turn's fold line, above its final answer (doc/design/webui.md "Message view"). */
@@ -224,6 +225,26 @@ function CompactingRow() {
 				</span>
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The line at the end of the transcript while this session's own turn runs (doc/design/webui.md "Message view"):
+ * a tool-call row with the spinner in the status icon's place, so the live turn ends in the same rhythm as the
+ * calls above it. It is rendered after the last row and scrolls with the transcript.
+ */
+export function RunningRow() {
+	return (
+		<article className="px-3 pb-1" data-testid="transcript-running">
+			<div className="max-w-[92%]">
+				<TranscriptLine>
+					<LoaderCircleIcon className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+					<span className="min-w-0 flex-1 truncate font-mono text-xs">
+						<Trans>Running…</Trans>
+					</span>
+				</TranscriptLine>
+			</div>
+		</article>
 	);
 }
 

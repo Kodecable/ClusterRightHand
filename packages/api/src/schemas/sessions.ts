@@ -31,6 +31,23 @@ export const SessionWaitingKindSchema = z.enum(["quota", "approval", "authorizat
 /** The scopes of the session list and its search; `all` is administrators only. */
 export const SessionListScopeSchema = z.enum(["mine", "shared", "visible", "all"]);
 
+/**
+ * The tree's background jobs, counted for the sidebar indicator (doc/design/jobs.md "States" and
+ * doc/design/webui.md "Sidebar list"). A job belongs to the tree of the root its `session_id` hangs
+ * under, including a job a subagent started.
+ */
+export const SessionJobCountsSchema = z
+	.object({
+		active: z.number().describe("Unsettled jobs in the whole tree: waiting or running, a subagent's included."),
+		awaitingUser: z
+			.number()
+			.describe("Unsettled jobs in the whole tree that wait for the user: an approval or a signature."),
+	})
+	.meta({
+		id: "SessionJobCounts",
+		description: "The session tree's unsettled jobs, as the sidebar indicator needs them.",
+	});
+
 /** How the caller relates to a session; display only, authorization uses `capabilities`. */
 export const SessionRelationshipSchema = z.enum(["owner", "admin", "shared"]);
 
@@ -82,6 +99,9 @@ export const SessionListItemSchema = z
 		shared: z.boolean().describe("Not owned by the current user but shared with them."),
 		state: SessionRunStateSchema.describe("The whole tree's state: any child awaiting wins, then running, else idle."),
 		waitingKind: SessionWaitingKindSchema.nullable().describe("The highest-priority wait while `state` is awaiting."),
+		jobs: SessionJobCountsSchema.describe(
+			'The whole tree\'s unsettled jobs; background work can wait for the user while `state` is idle (doc/design/jobs.md "States").',
+		),
 		unread: z.boolean().describe("The tree produced output after the owner last opened it; false for a shared viewer."),
 		updatedAt: z.string(),
 	})

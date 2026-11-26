@@ -262,6 +262,11 @@ second one:
   **0 background jobs** and opens nothing. Its line shows the counts of running and waiting jobs;
   expanding it shows one row per job with its kind icon, action, state and elapsed time. Subagents are `subagent` jobs; a subagent's
   own active jobs are nested under it, and a level still loads one page at a time.
+- **Sidebar indicator.** A session list item carries the tree's unsettled job counts, `active` and
+  `awaitingUser`, and the list stream pushes the root's item when a job is created, changes state or wait,
+  or settles. The sidebar's single indicator then shows the user's wait first — the session's own wait or
+  a job waiting for an approval or signature, even after its turn ended — then running work, then unread
+  output ([Sidebar list](webui.md#sidebar-list)).
 - **No job pages.** A job has no page of its own, and neither does an external call. A row whose job
   has a resource page — a task, a task group or a subagent session — links to it, and stopping happens
   there, with that page's own control. A row without one — an extension call — shows a Stop button

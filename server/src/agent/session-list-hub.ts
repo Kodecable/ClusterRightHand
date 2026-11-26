@@ -7,6 +7,8 @@ import {
 	type ShareAudience,
 	sessionListItem,
 	shareAudienceUserIds,
+	TREE_ACTIVE_JOBS,
+	TREE_AWAITING_USER_JOBS,
 	TREE_STATE,
 	TREE_WAITING_KIND,
 } from "./session-list.ts";
@@ -231,6 +233,8 @@ export class SessionListHub {
 				"sessions.schedule_id",
 				TREE_STATE.as("state"),
 				TREE_WAITING_KIND.as("waiting_kind"),
+				TREE_ACTIVE_JOBS.as("jobs_active"),
+				TREE_AWAITING_USER_JOBS.as("jobs_awaiting_user"),
 				"sessions.updated_at",
 				"sessions.reply_at",
 				"sessions.owner_read_at",
