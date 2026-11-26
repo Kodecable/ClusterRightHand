@@ -1,4 +1,11 @@
-import type { MetricBucketPoint, MetricSeriesReading, NodeMetricsResponse, PublicNode, User } from "@crh/api";
+import {
+	type MetricBucketPoint,
+	type MetricSeriesReading,
+	metricUnit,
+	type NodeMetricsResponse,
+	type PublicNode,
+	type User,
+} from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -85,7 +92,9 @@ function metricReading(name: string, avg: number): MetricSeriesReading {
 	return {
 		name,
 		kind: "gauge",
+		unit: metricUnit(name),
 		lastSeenAt: new Date().toISOString(),
+		summary: { min: avg, avg, max: avg, last: avg },
 		buckets: [metricPoint(Math.floor(Date.now() / MINUTE) * MINUTE, avg)],
 	};
 }

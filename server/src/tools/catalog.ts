@@ -40,7 +40,6 @@ import { readImageHeader } from "../library/image-header.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
 import { validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts";
 import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
-import type { MetricsStore } from "../metrics/store.ts";
 import { evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
@@ -57,7 +56,6 @@ import { convertExternalResult } from "./external-results.ts";
 import { listToolLibrary, statToolLibrary, toolLibrary } from "./library-access.ts";
 import { readLibraryFile } from "./library-read.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
-import { NODE_METRICS_RANGE_NAMES, nodeMetricsResult } from "./node-metrics.ts";
 import { errorResult, jsonResult, type ToolOutput, type ToolResult, textResult } from "./render.ts";
 import {
 	execResult,
@@ -110,8 +108,6 @@ export interface ToolContext {
 	onStatus?: (status: Record<string, unknown>) => Promise<void>;
 	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
 	imageCache?: ImageCache;
-	/** The host metrics store behind `node_metrics` (doc/design/metrics.md "Reading"). */
-	metrics?: MetricsStore;
 	/** Whether this conversation already had the provider reject a SHA-256 (doc/design/library.md "view_image"). */
 	imageRejected?: (sha256: string) => Promise<boolean>;
 	/**
@@ -326,30 +322,6 @@ const nodeInfo = define({
 		const entries = await Promise.all(nodes.map((node) => nodeInfoFields(ctx, node, notes.get(node.id) ?? null)));
 		return jsonResult({ nodes: entries });
 	},
-});
-
-const nodeMetrics = define({
-	name: "node_metrics",
-	description:
-		"The stored host metrics of one node (doc/design/metrics.md): CPU, load, memory, swap, filesystems, network " +
-		"traffic, uptime and reachability. Give the node, the series names or prefix patterns such as disk.*, and a " +
-		"range. Returns per series the minimum, average, maximum, last value and at most 60 points, with units " +
-		"(ratios as percentages, bytes human-readable) and the last-seen time of a series that stopped, plus the " +
-		"node's cumulative traffic for its current 30-day period. Reading metrics needs no approval.",
-	input: z.object({
-		node: z.string().describe("A node name or id"),
-		series: z
-			.array(z.string())
-			.min(1)
-			.describe(
-				"Series names or `prefix.*` patterns; at most 64 entries. The metrics document lists them, e.g. " +
-					"cpu.total, load.1, mem.available_bytes, disk.root.used_bytes, net.rx_bytes_per_sec, up, or disk.*",
-			),
-		range: z.enum(NODE_METRICS_RANGE_NAMES).describe("How far back to read: 1h, 24h, 7d, 30d or 365d"),
-	}),
-	readOnly: true,
-	output: "json",
-	handler: async (args, ctx) => nodeMetricsResult(ctx, { node: args.node, series: args.series, range: args.range }),
 });
 
 // ---- crh task tools ----
@@ -2157,7 +2129,6 @@ export const PTY_TOOL_NAMES: ReadonlySet<string> = new Set([
 export const TOOLS: readonly ClusterTool[] = [
 	listNodes,
 	nodeInfo,
-	nodeMetrics,
 	exec,
 	readFile,
 	writeFile,

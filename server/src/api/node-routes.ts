@@ -1,5 +1,13 @@
 import { Readable } from "node:stream";
-import { firstFilesystem, type NodeMetrics } from "@crh/api";
+import {
+	firstFilesystem,
+	metricUnit,
+	NODE_METRICS_DEFAULT_SERIES,
+	NODE_METRICS_FIELDS,
+	NODE_METRICS_RANGES,
+	type NodeMetrics,
+	type NodeMetricsField,
+} from "@crh/api";
 import {
 	BinaryBodySchema,
 	EmojiBodySchema,
@@ -67,6 +75,8 @@ import {
 	MAX_METRICS_RANGE_MS,
 	MAX_METRICS_READ_POINTS,
 	MAX_METRICS_SERIES,
+	type MetricPoint,
+	mergeMetricPoints,
 	metricsReadPoints,
 	parseMetricsInstant,
 	parseMetricsSeriesList,
@@ -108,11 +118,13 @@ const metricsRoute = defineRoute({
 	method: "get",
 	path: "/nodes/{id}/metrics",
 	tags: TAGS,
-	summary: "A node's stored host metrics: bucket averages for gauges, totals and counts for deltas",
-	description: `Reads one storage level (doc/design/metrics.md "Reading"). \`series\` names series or \`prefix.*\` patterns; \`from\` and \`to\` are ISO 8601 or epoch milliseconds and the range is at most 400 days. Without \`level\`, the coarsest level that covers the range and gives at least 200 points is used, moved coarser when the expanded series would return more than ${MAX_METRICS_READ_POINTS} points; an explicit \`level\` that exceeds that cap is refused. The response also carries the node traffic period (always 30 days) and, when known, the filesystem report order.`,
+	summary: "Stored host metrics of a node: buckets, unit and range summary per series",
+	description: `Reads stored host metrics (doc/design/metrics.md "Reading"). Give exactly one of \`range\` (1h, 24h, 7d, 30d or 365d ending now) or \`from\`; \`to\` defaults to now. \`series\` is optional: without it the response covers a small overview (up, uptime, cpu.total, load.1, the memory totals, the first filesystem when known, and the network rates); otherwise name series or \`prefix.*\` patterns such as cpu.total, mem.*, disk.* or net.*. \`points\` merges each series' buckets down to at most that many (0 returns no buckets), and \`fields\` keeps only the named bucket values with \`t\` always present. Each series carries its \`unit\` and a \`summary\` (min, avg, max, last) computed over the whole range before the merge. Without \`level\`, the coarsest level that covers the range and gives at least 200 points is used, moved coarser when the expanded series would return more than ${MAX_METRICS_READ_POINTS} points; an explicit \`level\` over that cap is refused, as is \`level\` with \`points\`. A typical agent call: \`?range=24h&points=24&fields=avg,max\`. The response also carries the node's 30-day traffic period and, when known, the filesystem report order.`,
 	agent: "allow",
 	request: { params: IdParamSchema, query: NodeMetricsQuerySchema },
-	responses: { 200: { description: "The series and their buckets", ...json(NodeMetricsResponseSchema) } },
+	responses: {
+		200: { description: "The series with their units, summaries and buckets", ...json(NodeMetricsResponseSchema) },
+	},
 });
 
 const trafficResetRoute = defineRoute({
@@ -452,7 +464,46 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const store = options.metricsStore ?? options.metrics;
 		if (!store) throw new UserError("host metrics are not available on this server");
 		const params = c.req.valid("query");
-		const requested = parseMetricsSeriesList(params.series);
+		if (params.points !== undefined && params.level !== undefined) {
+			throw new UserError("points: cannot be combined with level");
+		}
+		const points = metricsPoints(params.points);
+		let fromMs: number;
+		let toMs: number;
+		if (params.range !== undefined) {
+			if (params.from !== undefined || params.to !== undefined) {
+				throw new UserError("range: cannot be combined with from or to");
+			}
+			// `range` means [now - range, now); one clock reading keeps the two ends consistent.
+			const nowMs = Date.now();
+			fromMs = nowMs - NODE_METRICS_RANGES[params.range];
+			toMs = nowMs;
+		} else {
+			if (params.from === undefined) {
+				throw new UserError(
+					params.to === undefined
+						? "range or from: one of them is required"
+						: "from: required when to is given without range",
+				);
+			}
+			const parsedFrom = parseMetricsInstant(params.from);
+			if (parsedFrom === undefined) throw new UserError("from: must be an ISO 8601 time or Unix epoch milliseconds");
+			fromMs = parsedFrom;
+			const parsedTo = params.to === undefined ? Date.now() : parseMetricsInstant(params.to);
+			if (parsedTo === undefined) throw new UserError("to: must be an ISO 8601 time or Unix epoch milliseconds");
+			toMs = parsedTo;
+			if (fromMs >= toMs) throw new UserError("from: must be before to");
+			if (toMs - fromMs > MAX_METRICS_RANGE_MS) {
+				throw new UserError(`to: the range must be at most ${MAX_METRICS_RANGE_MS / 86_400_000} days`);
+			}
+		}
+		const fields = metricsFields(params.fields);
+		// The report order is only in the collector's memory; the bucket rows keep no order
+		// (doc/design/metrics.md "Storage"), and the default series need it to pick the first filesystem.
+		const diskOrder = options.metricsCollector?.diskOrder?.(id);
+		const available = await store.seriesNames(id);
+		const requested =
+			params.series === undefined ? metricsDefaultSeries(available, diskOrder) : parseMetricsSeriesList(params.series);
 		if (requested.length === 0) throw new UserError("series: at least one series is required");
 		if (requested.length > MAX_METRICS_SERIES) {
 			throw new UserError(`series: at most ${MAX_METRICS_SERIES} entries are allowed`);
@@ -461,15 +512,6 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			const problem = invalidMetricsSeriesEntry(entry);
 			if (problem !== undefined) throw new UserError(problem);
 		}
-		const fromMs = parseMetricsInstant(params.from);
-		if (fromMs === undefined) throw new UserError("from: must be an ISO 8601 time or Unix epoch milliseconds");
-		const toMs = parseMetricsInstant(params.to);
-		if (toMs === undefined) throw new UserError("to: must be an ISO 8601 time or Unix epoch milliseconds");
-		if (fromMs >= toMs) throw new UserError("from: must be before to");
-		if (toMs - fromMs > MAX_METRICS_RANGE_MS) {
-			throw new UserError(`to: the range must be at most ${MAX_METRICS_RANGE_MS / 86_400_000} days`);
-		}
-		const available = await store.seriesNames(id);
 		const names = expandMetricsSeriesNames(available, requested);
 		if (names.length > MAX_EXPANDED_METRICS_SERIES) {
 			throw new UserError(
@@ -480,37 +522,35 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			params.level === undefined
 				? store.chooseLevel(fromMs, toMs, names.length)
 				: (Number(params.level) as MetricLevel);
-		const points = metricsReadPoints(names.length, fromMs, toMs, level);
-		if (points > MAX_METRICS_READ_POINTS) {
+		const readPoints = metricsReadPoints(names.length, fromMs, toMs, level);
+		if (readPoints > MAX_METRICS_READ_POINTS) {
 			throw new UserError(
 				params.level === undefined
-					? `series: the request needs ${points} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a shorter range or fewer series`
-					: `level: ${names.length} series over this range need ${points} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a coarser level or fewer series`,
+					? `series: the request needs ${readPoints} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a shorter range or fewer series`
+					: `level: ${names.length} series over this range need ${readPoints} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a coarser level or fewer series`,
 			);
 		}
 		const readings = await store.read(id, names, fromMs, toMs, level);
-		// The report order is only in the collector's memory; the bucket rows keep no order
-		// (doc/design/metrics.md "Storage"). A period that already ended is rolled before it is served.
-		const diskOrder = options.metricsCollector?.diskOrder?.(id);
+		// A period that already ended is rolled before it is served.
 		const traffic = await store.traffic(id);
 		return c.json(
 			{
 				level,
 				bucketMs: METRIC_LEVEL_BUCKET_MS[level],
-				series: readings.map((reading) => ({
-					name: reading.name,
-					kind: reading.kind,
-					lastSeenAt: reading.lastSeenAt,
-					buckets: reading.buckets.map((bucket) => ({
-						t: bucket.bucketStart,
-						count: bucket.count,
-						avg: bucket.count > 0 ? bucket.sum / bucket.count : 0,
-						sum: bucket.sum,
-						min: bucket.min,
-						max: bucket.max,
-						last: bucket.last,
-					})),
-				})),
+				series: readings.map((reading) => {
+					const seriesPoints = metricPointsOf(reading.buckets);
+					const merged =
+						points === undefined ? seriesPoints : points === 0 ? [] : mergeMetricPoints(seriesPoints, points);
+					return {
+						name: reading.name,
+						kind: reading.kind,
+						unit: metricUnit(reading.name),
+						lastSeenAt: reading.lastSeenAt,
+						// The summary covers every bucket read, before `points` merges them.
+						summary: metricSummary(seriesPoints),
+						buckets: merged.map((point) => metricsBucketView(point, fields)),
+					};
+				}),
 				...(diskOrder === undefined || diskOrder.length === 0 ? {} : { diskOrder }),
 				traffic: traffic === undefined ? null : trafficView(traffic),
 			},
@@ -1109,6 +1149,112 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 async function discardLocation(context: TransferContext, location: TransferLocationJson): Promise<void> {
 	await openTransferLocation(context, location).discard();
+}
+
+/**
+ * The overview a metrics read returns when it names no series (doc/design/metrics.md "Reading"): the fixed
+ * default names plus the first filesystem's two values, inserted before the network rates. The filesystem
+ * follows the WebUI's choice among the filesystems that have both values stored.
+ */
+function metricsDefaultSeries(available: readonly string[], diskOrder?: readonly string[]): string[] {
+	const totals = new Set<string>();
+	const used = new Set<string>();
+	for (const name of available) {
+		const match = /^disk\.(.+)\.(total_bytes|used_bytes)$/.exec(name);
+		if (match === null) continue;
+		(match[2] === "total_bytes" ? totals : used).add(match[1] as string);
+	}
+	const complete = new Set([...totals].filter((name) => used.has(name)));
+	const first = firstFilesystem(complete, diskOrder);
+	const series: string[] = [...NODE_METRICS_DEFAULT_SERIES];
+	if (first !== undefined) {
+		series.splice(series.indexOf("net.rx_bytes_per_sec"), 0, `disk.${first}.total_bytes`, `disk.${first}.used_bytes`);
+	}
+	return series;
+}
+
+/** The store's buckets as the read points the merge and summary work on. */
+function metricPointsOf(
+	buckets: readonly { bucketStart: number; count: number; sum: number; min: number; max: number; last: number }[],
+): MetricPoint[] {
+	return buckets.map((bucket) => ({
+		t: bucket.bucketStart,
+		count: bucket.count,
+		sum: bucket.sum,
+		min: bucket.min,
+		max: bucket.max,
+		last: bucket.last,
+	}));
+}
+
+/** A series' values over the whole range, before any `points` merge; null without a bucket. */
+function metricSummary(points: readonly MetricPoint[]): { min: number; avg: number; max: number; last: number } | null {
+	const newest = points[points.length - 1];
+	if (newest === undefined) return null;
+	let count = 0;
+	let sum = 0;
+	let min = Number.POSITIVE_INFINITY;
+	let max = Number.NEGATIVE_INFINITY;
+	for (const point of points) {
+		count += point.count;
+		sum += point.sum;
+		if (point.min < min) min = point.min;
+		if (point.max > max) max = point.max;
+	}
+	return { min, avg: count > 0 ? sum / count : newest.last, max, last: newest.last };
+}
+
+/**
+ * `points` as the number the merge takes. The query schema keeps it a string for OpenAPI and accepts
+ * digits only, so this checks the 0–1000 bound and converts; an empty or non-decimal value never gets
+ * here, because the schema already refused it (doc/design/metrics.md "Reading").
+ */
+function metricsPoints(value: string | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	const points = Number(value);
+	if (!Number.isInteger(points) || points < 0 || points > 1000) {
+		throw new UserError("points: must be an integer from 0 to 1000");
+	}
+	return points;
+}
+
+/** The requested bucket fields, refusing an unknown or empty entry; undefined means every field. */
+function metricsFields(value: string | undefined): NodeMetricsField[] | undefined {
+	if (value === undefined) return undefined;
+	const fields: NodeMetricsField[] = [];
+	for (const entry of value.split(",").map((part) => part.trim())) {
+		if (!NODE_METRICS_FIELDS.includes(entry as NodeMetricsField)) {
+			throw new UserError(
+				entry === ""
+					? "fields: entries must not be empty"
+					: `fields: unknown field ${entry}; allowed: ${NODE_METRICS_FIELDS.join(",")}`,
+			);
+		}
+		const field = entry as NodeMetricsField;
+		if (!fields.includes(field)) fields.push(field);
+	}
+	return fields;
+}
+
+/** One bucket as the response carries it: every value, or `t` plus the requested `fields`. */
+interface MetricsBucketView {
+	t: number;
+	count?: number;
+	avg?: number;
+	sum?: number;
+	min?: number;
+	max?: number;
+	last?: number;
+}
+
+function metricsBucketView(point: MetricPoint, fields: readonly NodeMetricsField[] | undefined): MetricsBucketView {
+	const avg = point.count > 0 ? point.sum / point.count : 0;
+	if (fields === undefined) {
+		return { t: point.t, count: point.count, avg, sum: point.sum, min: point.min, max: point.max, last: point.last };
+	}
+	const view: MetricsBucketView = { t: point.t };
+	for (const field of fields) view[field] = field === "avg" ? avg : point[field];
+	return view;
 }
 
 /** A filesystem's two values in the latest sample, when both are present. */

@@ -33,7 +33,7 @@ export const nodeKeys = {
 	crhsKey: () => ["nodes", "crhs-key"] as const,
 };
 
-/** The ranges the node page offers (doc/design/webui.md "Node pages"), shared with the `node_metrics` tool. */
+/** The ranges the node page offers (doc/design/webui.md "Node pages"), shared with the metrics API. */
 export type MetricsRange = NodeMetricsRange;
 
 export const METRICS_RANGE_MS: Record<MetricsRange, number> = NODE_METRICS_RANGES;

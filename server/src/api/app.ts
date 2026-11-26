@@ -164,7 +164,7 @@ export interface AppOptions extends AuthRoutesOptions {
 	scheduler?: Scheduler;
 	/** The terminal subsystem behind the Terminals page and the agent tools (doc/design/pty.md). */
 	terminals?: TerminalService;
-	/** The host metrics store behind the node metrics API and the node_metrics tool (doc/design/metrics.md). */
+	/** The host metrics store behind the node metrics API (doc/design/metrics.md). */
 	metricsStore?: MetricsStore;
 	/** Alias of `metricsStore` for callers that already name the store `metrics`, as `main.ts` does. */
 	metrics?: MetricsStore;
@@ -420,7 +420,6 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 				callRunner,
 				...(jobs ? { jobs } : {}),
 				...(options.imageCache ? { imageCache: options.imageCache } : {}),
-				...((options.metricsStore ?? options.metrics) ? { metrics: options.metricsStore ?? options.metrics } : {}),
 				...(options.settings ? { settings: options.settings } : {}),
 				...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
 			}),

@@ -1,5 +1,9 @@
+import { NODE_METRICS_DEFAULT_SERIES } from "@crh/api";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createApp } from "../src/api/app.ts";
+import { apiDocument } from "../src/api/openapi.ts";
+import { apiRoutes } from "../src/extensions/api-reference.ts";
+import { runApiRequest } from "../src/extensions/api-request.ts";
 import type { LatestMetrics } from "../src/metrics/collector.ts";
 import { DEFAULT_METRICS_RETENTION_MS, METRIC_LEVEL_BUCKET_MS } from "../src/metrics/levels.ts";
 import { MetricsStore } from "../src/metrics/store.ts";
@@ -7,7 +11,8 @@ import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
-import { type App, call, login } from "./helpers/api.ts";
+import { MAX_OUTPUT_BYTES } from "../src/util/output-limits.ts";
+import { call, login } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
@@ -55,9 +60,23 @@ function iso(ms: number): string {
 	return new Date(ms).toISOString();
 }
 
+/** The fixed default overview series' values, so a node can carry a complete overview plus its filesystems. */
+function defaultOverviewValues(): { name: string; kind: "gauge"; value: number }[] {
+	return [
+		{ name: "up", kind: "gauge", value: 1 },
+		{ name: "uptime", kind: "gauge", value: 7200 },
+		{ name: "cpu.total", kind: "gauge", value: 0.25 },
+		{ name: "load.1", kind: "gauge", value: 1.5 },
+		{ name: "mem.total_bytes", kind: "gauge", value: 8 * 1024 ** 3 },
+		{ name: "mem.available_bytes", kind: "gauge", value: 2 * 1024 ** 3 },
+		{ name: "net.rx_bytes_per_sec", kind: "gauge", value: 1234 },
+		{ name: "net.tx_bytes_per_sec", kind: "gauge", value: 567 },
+	];
+}
+
 describeBackends("node metrics API", (backend) => {
 	let db: Db;
-	let app: App;
+	let app: ReturnType<typeof createApp>;
 	let store: MetricsStore;
 	let rootCookie: string;
 	let opCookie: string;
@@ -72,6 +91,12 @@ describeBackends("node metrics API", (backend) => {
 	let alphaDiskNodeId: string;
 	let bareNodeId: string;
 	let manySeriesNodeId: string;
+	let defaultsNodeId: string;
+	let partialDiskNodeId: string;
+	let incompleteDiskNodeId: string;
+	let pointsNodeId: string;
+	let summaryNodeId: string;
+	let agentNodeId: string;
 	let staleSlot: number;
 
 	const series = async (who: string, id: string, query: Record<string, string>) => {
@@ -100,6 +125,12 @@ describeBackends("node metrics API", (backend) => {
 		alphaDiskNodeId = await addNode(db, "metrics-alpha-disk");
 		bareNodeId = await addNode(db, "metrics-bare");
 		manySeriesNodeId = await addNode(db, "metrics-many-series");
+		defaultsNodeId = await addNode(db, "metrics-defaults");
+		partialDiskNodeId = await addNode(db, "metrics-partial-disk");
+		incompleteDiskNodeId = await addNode(db, "metrics-incomplete-disk");
+		pointsNodeId = await addNode(db, "metrics-points");
+		summaryNodeId = await addNode(db, "metrics-summary");
+		agentNodeId = await addNode(db, "metrics-agent");
 		await db
 			.insertInto("node_access_grants")
 			.values({
@@ -235,6 +266,49 @@ describeBackends("node metrics API", (backend) => {
 				{ name: `disk.d${index}.used_bytes`, kind: "gauge" as const, value: index },
 			]).flat(),
 		);
+		// Every fixed default series, without any filesystem: the default read must ask for no disk series.
+		store.record(defaultsNodeId, SLOT, defaultOverviewValues());
+		// `aaa` reports only its total, so it is an incomplete filesystem: the default read must skip it and
+		// choose `beta`, which comes later alphabetically but has both values.
+		store.record(partialDiskNodeId, SLOT, [
+			...defaultOverviewValues(),
+			{ name: "disk.aaa.total_bytes", kind: "gauge", value: 1000 },
+			{ name: "disk.beta.total_bytes", kind: "gauge", value: 2000 },
+			{ name: "disk.beta.used_bytes", kind: "gauge", value: 500 },
+		]);
+		// No filesystem is complete: the default read must ask for no disk series at all.
+		store.record(incompleteDiskNodeId, SLOT, [
+			...defaultOverviewValues(),
+			{ name: "disk.aaa.total_bytes", kind: "gauge", value: 1000 },
+		]);
+		// Ten one-minute CPU buckets: the points merge and the summary can be read from one series.
+		for (let index = 0; index < 10; index++) {
+			store.record(pointsNodeId, SLOT - (9 - index) * MINUTE, [
+				{ name: "cpu.total", kind: "gauge", value: (index + 1) / 10 },
+			]);
+		}
+		// Two buckets with different sample counts: the summary's average must be sample-weighted.
+		store.record(summaryNodeId, SLOT - 2 * MINUTE, [
+			{ name: "cpu.total", kind: "gauge", value: 0.2 },
+			{ name: "cpu.total", kind: "gauge", value: 0.4 },
+		]);
+		store.record(summaryNodeId, SLOT - MINUTE, [{ name: "cpu.total", kind: "gauge", value: 1 }]);
+		// A day of one-minute default-series data, for the agent's api_request call.
+		const agentNow = Math.floor(Date.now() / MINUTE) * MINUTE;
+		for (let index = 0; index < 24 * 60; index++) {
+			store.record(agentNodeId, agentNow - (24 * 60 - 1 - index) * MINUTE, [
+				{ name: "up", kind: "gauge", value: 1 },
+				{ name: "uptime", kind: "gauge", value: 86_400 + index },
+				{ name: "cpu.total", kind: "gauge", value: 0.1 + (index % 60) / 100 },
+				{ name: "load.1", kind: "gauge", value: 1 + (index % 10) / 10 },
+				{ name: "mem.total_bytes", kind: "gauge", value: 8 * 1024 ** 3 },
+				{ name: "mem.available_bytes", kind: "gauge", value: 4 * 1024 ** 3 - index },
+				{ name: "disk.root.total_bytes", kind: "gauge", value: 100 * 1024 ** 3 },
+				{ name: "disk.root.used_bytes", kind: "gauge", value: 20 * 1024 ** 3 + index },
+				{ name: "net.rx_bytes_per_sec", kind: "gauge", value: 1000 + index },
+				{ name: "net.tx_bytes_per_sec", kind: "gauge", value: 500 + index },
+			]);
+		}
 		await store.flush();
 	});
 
@@ -264,6 +338,10 @@ describeBackends("node metrics API", (backend) => {
 			"from after to": { series: "cpu.total", from: String(NOW), to: String(NOW - HOUR) },
 			"range too long": { series: "cpu.total", from: String(NOW - 401 * DAY), to: String(NOW) },
 			"bad level": { series: "cpu.total", from: String(NOW - HOUR), to: String(NOW), level: "5" },
+			"bad range": { series: "cpu.total", range: "2h" },
+			"fractional points": { series: "cpu.total", from: String(NOW - HOUR), to: String(NOW), points: "1.5" },
+			"negative points": { series: "cpu.total", from: String(NOW - HOUR), to: String(NOW), points: "-1" },
+			"too many points": { series: "cpu.total", from: String(NOW - HOUR), to: String(NOW), points: "1001" },
 		};
 		for (const [label, query] of Object.entries(invalid)) {
 			const res = await series(opCookie, nodeId, query);
@@ -279,6 +357,211 @@ describeBackends("node metrics API", (backend) => {
 				})
 			).status,
 		).toBe(400);
+	});
+
+	it("reads a range ending now and rejects a second way to name the window", async () => {
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(NOW);
+		try {
+			const cases: [string, number][] = [
+				["1h", 1],
+				["24h", 2],
+				["7d", 2],
+				["30d", 3],
+				["365d", 4],
+			];
+			for (const [range, level] of cases) {
+				const res = await series(opCookie, nodeId, { series: "cpu.total", range });
+				expect(res.status, range).toBe(200);
+				const body = (await res.json()) as { level: number; series: { buckets: unknown[] }[] };
+				expect(body.level, range).toBe(level);
+				expect(body.series[0]?.buckets.length, range).toBeGreaterThan(0);
+			}
+			// `to` defaults to now, so `from` alone covers [from, now).
+			const fromOnly = await series(opCookie, nodeId, { series: "cpu.total", from: String(NOW - HOUR) });
+			expect(fromOnly.status).toBe(200);
+			expect(((await fromOnly.json()) as { series: { buckets: unknown[] }[] }).series[0]?.buckets).toHaveLength(1);
+			const invalid: [string, Record<string, string>][] = [
+				["range and from", { range: "1h", from: String(NOW - HOUR) }],
+				["range and to", { range: "1h", to: String(NOW) }],
+				["to alone", { to: String(NOW) }],
+				["neither", {}],
+			];
+			for (const [label, query] of invalid) {
+				expect((await series(opCookie, nodeId, query)).status, label).toBe(400);
+			}
+		} finally {
+			nowSpy.mockRestore();
+		}
+	});
+
+	it("returns the default overview series, with and without a known filesystem", async () => {
+		const query = { from: iso(SLOT), to: iso(SLOT + MINUTE) };
+		const withDisk = await series(opCookie, nodeId, query);
+		expect(withDisk.status).toBe(200);
+		expect(((await withDisk.json()) as { series: { name: string }[] }).series.map((entry) => entry.name)).toEqual([
+			"up",
+			"cpu.total",
+			"mem.total_bytes",
+			"mem.available_bytes",
+			"disk.data.total_bytes",
+			"disk.data.used_bytes",
+		]);
+
+		const withoutDisk = await series(rootCookie, defaultsNodeId, query);
+		expect(withoutDisk.status).toBe(200);
+		expect(((await withoutDisk.json()) as { series: { name: string }[] }).series.map((entry) => entry.name)).toEqual([
+			...NODE_METRICS_DEFAULT_SERIES,
+		]);
+	});
+
+	it("skips an incomplete filesystem when choosing the default disk series", async () => {
+		const query = { from: iso(SLOT), to: iso(SLOT + MINUTE) };
+		// `aaa` has only its total stored; `beta` is later alphabetically but has both values.
+		const partial = await series(rootCookie, partialDiskNodeId, query);
+		expect(partial.status).toBe(200);
+		expect(((await partial.json()) as { series: { name: string }[] }).series.map((entry) => entry.name)).toEqual([
+			"up",
+			"uptime",
+			"cpu.total",
+			"load.1",
+			"mem.total_bytes",
+			"mem.available_bytes",
+			"disk.beta.total_bytes",
+			"disk.beta.used_bytes",
+			"net.rx_bytes_per_sec",
+			"net.tx_bytes_per_sec",
+		]);
+
+		// Only an incomplete filesystem is stored: no disk series appear at all.
+		const incomplete = await series(rootCookie, incompleteDiskNodeId, query);
+		expect(incomplete.status).toBe(200);
+		expect(((await incomplete.json()) as { series: { name: string }[] }).series.map((entry) => entry.name)).toEqual([
+			...NODE_METRICS_DEFAULT_SERIES,
+		]);
+	});
+
+	it("merges each series down to `points` while the summary covers the whole range", async () => {
+		const body = (await (
+			await series(rootCookie, pointsNodeId, {
+				series: "cpu.total",
+				from: iso(SLOT - 9 * MINUTE),
+				to: iso(SLOT + MINUTE),
+				points: "3",
+				fields: "avg,max",
+			})
+		).json()) as {
+			series: {
+				summary: { min: number; avg: number; max: number; last: number } | null;
+				buckets: Record<string, number>[];
+			}[];
+		};
+		const entry = body.series[0];
+		expect(entry?.buckets).toHaveLength(3);
+		for (const bucket of entry?.buckets ?? []) expect(Object.keys(bucket).sort()).toEqual(["avg", "max", "t"]);
+		// Ten one-minute buckets of 0.1 … 1.0, summarized before the merge into three buckets.
+		expect(entry?.summary?.min).toBeCloseTo(0.1);
+		expect(entry?.summary?.avg).toBeCloseTo(0.55);
+		expect(entry?.summary?.max).toBeCloseTo(1);
+		expect(entry?.summary?.last).toBeCloseTo(1);
+	});
+
+	it("returns no buckets for points=0 but still the summary", async () => {
+		const body = (await (
+			await series(rootCookie, pointsNodeId, {
+				series: "cpu.total",
+				from: iso(SLOT - 9 * MINUTE),
+				to: iso(SLOT + MINUTE),
+				points: "0",
+			})
+		).json()) as {
+			series: { summary: { min: number; avg: number; max: number; last: number } | null; buckets: unknown[] }[];
+		};
+		expect(body.series[0]?.buckets).toEqual([]);
+		expect(body.series[0]?.summary?.last).toBeCloseTo(1);
+	});
+
+	it("refuses an empty or non-decimal points and accepts 0 through 1000", async () => {
+		const query = { series: "cpu.total", from: iso(SLOT - 9 * MINUTE), to: iso(SLOT + MINUTE) };
+		for (const points of ["", " ", "1e2", "0x10", "-1", "1.5", "1001"]) {
+			const res = await series(rootCookie, pointsNodeId, { ...query, points });
+			expect(res.status, JSON.stringify(points)).toBe(400);
+			expect(((await res.json()) as { error: string }).error, JSON.stringify(points)).toMatch(/^points: /);
+		}
+		for (const points of ["0", "1", "1000"]) {
+			const res = await series(rootCookie, pointsNodeId, { ...query, points });
+			expect(res.status, points).toBe(200);
+		}
+	});
+
+	it("refuses points together with level", async () => {
+		const res = await series(rootCookie, pointsNodeId, {
+			series: "cpu.total",
+			from: iso(SLOT - 9 * MINUTE),
+			to: iso(SLOT + MINUTE),
+			points: "2",
+			level: "1",
+		});
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBe("points: cannot be combined with level");
+	});
+
+	it("summarizes min, sample-weighted average, max and last over the range", async () => {
+		const body = (await (
+			await series(rootCookie, summaryNodeId, {
+				series: "cpu.total",
+				from: iso(SLOT - 2 * MINUTE),
+				to: iso(SLOT),
+			})
+		).json()) as {
+			series: { summary: { min: number; avg: number; max: number; last: number } | null; buckets: unknown[] }[];
+		};
+		expect(body.series[0]?.buckets).toHaveLength(2);
+		// Bucket averages are 0.3 (two samples) and 1 (one sample): 1.6 / 3, not (0.3 + 1) / 2.
+		expect(body.series[0]?.summary).toMatchObject({ min: 0.2, max: 1, last: 1 });
+		expect(body.series[0]?.summary?.avg).toBeCloseTo(1.6 / 3);
+	});
+
+	it("keeps only the requested fields and refuses an unknown or empty one", async () => {
+		const subset = await series(opCookie, nodeId, {
+			series: "cpu.total",
+			from: iso(SLOT),
+			to: iso(SLOT + MINUTE),
+			fields: "avg,max",
+		});
+		expect(subset.status).toBe(200);
+		const body = (await subset.json()) as { series: { buckets: Record<string, number>[] }[] };
+		expect(body.series[0]?.buckets).toHaveLength(1);
+		expect(Object.keys(body.series[0]?.buckets[0] ?? {}).sort()).toEqual(["avg", "max", "t"]);
+
+		for (const fields of ["avg,nope", "avg,", ""]) {
+			const res = await series(opCookie, nodeId, {
+				series: "cpu.total",
+				from: iso(SLOT),
+				to: iso(SLOT + MINUTE),
+				fields,
+			});
+			expect(res.status, JSON.stringify(fields)).toBe(400);
+		}
+	});
+
+	it("reports each series' unit while keeping the values raw", async () => {
+		const res = await series(rootCookie, defaultsNodeId, {
+			series: "cpu.total,mem.total_bytes,uptime,load.1,net.rx_bytes_per_sec",
+			from: iso(SLOT),
+			to: iso(SLOT + MINUTE),
+			level: "1",
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { series: { name: string; unit: string; buckets: { avg?: number }[] }[] };
+		expect(Object.fromEntries(body.series.map((entry) => [entry.name, entry.unit]))).toEqual({
+			"cpu.total": "ratio",
+			"mem.total_bytes": "bytes",
+			uptime: "seconds",
+			"load.1": "load",
+			"net.rx_bytes_per_sec": "bytes_per_sec",
+		});
+		// A ratio is not turned into a percentage string: the API returns numbers.
+		expect(body.series.find((entry) => entry.name === "cpu.total")?.buckets[0]?.avg).toBe(0.25);
 	});
 
 	it("chooses the coarsest level that covers the range and gives 200 points", async () => {
@@ -366,6 +649,7 @@ describeBackends("node metrics API", (backend) => {
 		};
 		const cpu = body.series.find((entry) => entry.name === "cpu.total");
 		expect(cpu?.kind).toBe("gauge");
+		expect((cpu as { unit?: string } | undefined)?.unit).toBe("ratio");
 		expect(cpu?.buckets).toEqual([
 			{
 				t: SLOT,
@@ -379,6 +663,7 @@ describeBackends("node metrics API", (backend) => {
 		]);
 		const net = body.series.find((entry) => entry.name === "net.rx_bytes");
 		expect(net?.kind).toBe("delta");
+		expect((net as { unit?: string } | undefined)?.unit).toBe("bytes");
 		expect(net?.buckets[0]).toMatchObject({ count: 2, avg: 200, sum: 400, min: 100, max: 300, last: 300 });
 	});
 
@@ -389,9 +674,13 @@ describeBackends("node metrics API", (backend) => {
 			to: iso(NOW - 23 * HOUR),
 		});
 		expect(res.status).toBe(200);
-		const body = (await res.json()) as { series: { name: string; buckets: unknown[]; lastSeenAt: string }[] };
+		const body = (await res.json()) as {
+			series: { name: string; buckets: unknown[]; lastSeenAt: string; unit: string; summary: unknown }[];
+		};
 		expect(body.series[0]?.buckets).toEqual([]);
 		expect(body.series[0]?.lastSeenAt).toBe(iso(SLOT + 30_000));
+		expect(body.series[0]?.unit).toBe("ratio");
+		expect(body.series[0]?.summary).toBeNull();
 	});
 
 	it("puts the collector's latest sample on the node list and the node detail", async () => {
@@ -489,5 +778,27 @@ describeBackends("node metrics API", (backend) => {
 			node: { metrics?: Record<string, unknown> };
 		};
 		expect(detail.node.metrics).toMatchObject({ stale: true, at: new Date(staleSlot).toISOString() });
+	});
+
+	it("keeps the agent's api_request metrics call under the output limit", async () => {
+		const result = await runApiRequest(
+			async (request, identity) => app.request(request, undefined, { crhInternal: identity }),
+			apiRoutes(apiDocument(app)),
+			{
+				method: "GET",
+				path: `/api/nodes/${agentNodeId}/metrics`,
+				query: { range: "24h", points: 24, fields: "avg,max" },
+			},
+			{ type: "session", id: "session-metrics", onBehalfOfUserId: rootId },
+		);
+		expect(result.isError).toBeFalsy();
+		const text = result.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+		expect(text).toContain("HTTP 200");
+		expect(text).not.toContain("[response truncated");
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThan(MAX_OUTPUT_BYTES);
+		const body = JSON.parse(text.slice(text.indexOf("\n") + 1)) as { series: { buckets: unknown[] }[] };
+		// The default overview on a node with a filesystem: ten series, each merged to 24 buckets.
+		expect(body.series).toHaveLength(10);
+		for (const entry of body.series) expect(entry.buckets.length).toBeLessThanOrEqual(24);
 	});
 });

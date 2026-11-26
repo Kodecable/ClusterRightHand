@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	firstFilesystem,
 	isValidTrafficNextReset,
+	type METRIC_UNITS,
+	metricUnit,
+	NODE_METRICS_DEFAULT_SERIES,
+	NODE_METRICS_FIELDS,
 	NODE_METRICS_RANGE_NAMES,
 	NODE_METRICS_RANGES,
 	NODE_USER_REMARK_MAX_CODE_POINTS,
@@ -11,7 +15,7 @@ import {
 import { NodeTrafficNextResetBodySchema, NodeUserRemarkBodySchema } from "./schemas/nodes.ts";
 
 describe("node metric ranges", () => {
-	it("lists the five ranges the WebUI and node_metrics share, with their widths", () => {
+	it("lists the five ranges the WebUI and the metrics API share, with their widths", () => {
 		expect(NODE_METRICS_RANGE_NAMES).toEqual(["1h", "24h", "7d", "30d", "365d"]);
 		expect(NODE_METRICS_RANGES).toEqual({
 			"1h": 60 * 60 * 1000,
@@ -20,6 +24,38 @@ describe("node metric ranges", () => {
 			"30d": 30 * 24 * 60 * 60 * 1000,
 			"365d": 365 * 24 * 60 * 60 * 1000,
 		});
+	});
+
+	it("defaults to the fixed overview series before the network rates", () => {
+		expect(NODE_METRICS_DEFAULT_SERIES).toEqual([
+			"up",
+			"uptime",
+			"cpu.total",
+			"load.1",
+			"mem.total_bytes",
+			"mem.available_bytes",
+			"net.rx_bytes_per_sec",
+			"net.tx_bytes_per_sec",
+		]);
+		expect(NODE_METRICS_FIELDS).toEqual(["count", "avg", "sum", "min", "max", "last"]);
+	});
+});
+
+describe("metricUnit", () => {
+	it("names every unit and the series kind that selects it", () => {
+		const cases: [string, (typeof METRIC_UNITS)[number]][] = [
+			["up", "ratio"],
+			["cpu.total", "ratio"],
+			["cpu.core.3", "ratio"],
+			["load.1", "load"],
+			["net.rx_bytes_per_sec", "bytes_per_sec"],
+			["mem.total_bytes", "bytes"],
+			["disk.root.used_bytes", "bytes"],
+			["net.rx_packets", "packets"],
+			["uptime", "seconds"],
+			["something_else", "count"],
+		];
+		for (const [name, unit] of cases) expect(metricUnit(name), name).toBe(unit);
 	});
 });
 

@@ -2,8 +2,7 @@ import { METRIC_LEVEL_BUCKET_MS, METRIC_LEVELS, type MetricLevel } from "./level
 
 /**
  * Shared reading rules for host metrics (doc/design/metrics.md "Reading"): input parsing, `prefix.*`
- * expansion and downsampling. The API route and the `node_metrics` tool both use them, so the two surfaces
- * accept the same patterns and bound the same work.
+ * expansion and downsampling for the node metrics API route.
  */
 
 /** At most this many series entries (names or patterns) one request may name. */
@@ -48,9 +47,6 @@ export function fitMetricsReadLevel(
 	}
 	return 4;
 }
-
-/** The most points the `node_metrics` tool describes per series; the API returns the stored buckets. */
-export const MAX_METRICS_TOOL_POINTS = 60;
 
 /** A bucket as the read surfaces use it; `t` is the bucket start in Unix epoch milliseconds. */
 export interface MetricPoint {

@@ -17,7 +17,6 @@ import type { CallRunner } from "../extensions/call-runner.ts";
 import type { McpConnections } from "../extensions/connections.ts";
 import type { Jobs } from "../jobs/jobs.ts";
 import type { ImageCache } from "../library/image-cache.ts";
-import type { MetricsStore } from "../metrics/store.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
@@ -104,8 +103,6 @@ export interface AgentRuntimeOptions {
 	audit?: Audit;
 	/** The image cache behind `view_image` (doc/design/library.md "Image cache"); required to use that tool. */
 	imageCache?: ImageCache;
-	/** The host metrics store behind `node_metrics` (doc/design/metrics.md "Reading"). */
-	metrics?: MetricsStore;
 	/** The MCP client connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
 	mcp?: McpConnections;
 	/** The job service; AgentRuntime makes one when the caller did not (doc/design/jobs.md). */

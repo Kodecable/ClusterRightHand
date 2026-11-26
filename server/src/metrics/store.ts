@@ -336,8 +336,8 @@ export class MetricsStore {
 	}
 
 	/**
-	 * The names of the node's stored series, sorted, for `prefix.*` expansion in the read API and the
-	 * `node_metrics` tool (doc/design/metrics.md "Reading"). A node with no sample has none.
+	 * The names of the node's stored series, sorted, for `prefix.*` expansion in the read API
+	 * (doc/design/metrics.md "Reading"). A node with no sample has none.
 	 */
 	async seriesNames(nodeId: string): Promise<string[]> {
 		const rows = await this.#db

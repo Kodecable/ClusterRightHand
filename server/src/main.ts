@@ -305,7 +305,6 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		jobs,
 		callRunner,
 		imageCache,
-		metrics,
 		mcp,
 		audit,
 		settings,

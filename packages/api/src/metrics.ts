@@ -5,7 +5,7 @@
  * user remark rule and the first-filesystem choice live here once.
  */
 
-/** The ranges the node page and the `node_metrics` tool offer (doc/design/webui.md "Node pages"). */
+/** The ranges the node page and the metrics API offer (doc/design/webui.md "Node pages"). */
 export const NODE_METRICS_RANGE_NAMES = ["1h", "24h", "7d", "30d", "365d"] as const;
 
 export type NodeMetricsRange = (typeof NODE_METRICS_RANGE_NAMES)[number];
@@ -18,6 +18,47 @@ export const NODE_METRICS_RANGES: Record<NodeMetricsRange, number> = {
 	"30d": 30 * 24 * 60 * 60 * 1000,
 	"365d": 365 * 24 * 60 * 60 * 1000,
 };
+
+/**
+ * The series `GET /api/nodes/{id}/metrics` returns when the request names none (doc/design/metrics.md
+ * "Reading"): a small overview of reachability, uptime, CPU, load, memory and the network rates. When a
+ * filesystem is known, the route also asks for its `total_bytes` and `used_bytes` series, and those two
+ * names sit between the memory and network entries.
+ */
+export const NODE_METRICS_DEFAULT_SERIES = [
+	"up",
+	"uptime",
+	"cpu.total",
+	"load.1",
+	"mem.total_bytes",
+	"mem.available_bytes",
+	"net.rx_bytes_per_sec",
+	"net.tx_bytes_per_sec",
+] as const;
+
+/** The bucket values a read may ask for with `fields`; `t` is always returned. */
+export const NODE_METRICS_FIELDS = ["count", "avg", "sum", "min", "max", "last"] as const;
+
+export type NodeMetricsField = (typeof NODE_METRICS_FIELDS)[number];
+
+/** The units a series can have (doc/design/metrics.md "Metrics"); values stay raw numbers. */
+export const METRIC_UNITS = ["ratio", "bytes", "bytes_per_sec", "load", "seconds", "packets", "count"] as const;
+
+export type MetricUnit = (typeof METRIC_UNITS)[number];
+
+/**
+ * A series' unit from its name (doc/design/metrics.md "Metrics"). Ratios stay 0–1, bytes counts and
+ * rates are not formatted: the API promises values, not display strings.
+ */
+export function metricUnit(name: string): MetricUnit {
+	if (name === "up" || name === "cpu.total" || name.startsWith("cpu.core.")) return "ratio";
+	if (name.startsWith("load.")) return "load";
+	if (name.endsWith("_bytes_per_sec")) return "bytes_per_sec";
+	if (name.endsWith("_bytes")) return "bytes";
+	if (name.endsWith("_packets")) return "packets";
+	if (name === "uptime") return "seconds";
+	return "count";
+}
 
 /** One traffic period is exactly 30 days, whatever the calendar says (doc/design/metrics.md "Traffic totals"). */
 export const TRAFFIC_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;

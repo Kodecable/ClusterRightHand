@@ -4,7 +4,13 @@
  * wire types, so a type and its schema cannot drift.
  */
 import { z } from "zod";
-import { nodeUserRemarkProblem, TRAFFIC_PERIOD_MS } from "../metrics.ts";
+import {
+	METRIC_UNITS,
+	NODE_METRICS_FIELDS,
+	NODE_METRICS_RANGE_NAMES,
+	nodeUserRemarkProblem,
+	TRAFFIC_PERIOD_MS,
+} from "../metrics.ts";
 
 export const NodeGroupRefSchema = z
 	.object({
@@ -396,19 +402,49 @@ export const MetricLevelSchema = z.union([z.literal(1), z.literal(2), z.literal(
 export const MetricKindSchema = z.enum(["gauge", "delta"]);
 
 /**
- * Query parameters of `GET /api/nodes/{id}/metrics` (doc/design/metrics.md "Reading"). The range is
- * `[from, to)`; `level` picks a storage level, otherwise the coarsest one that covers the range and gives
- * at least 200 points.
+ * Query parameters of `GET /api/nodes/{id}/metrics` (doc/design/metrics.md "Reading"). Give exactly one of
+ * `range` and `from`; `to` defaults to now. `level` picks a storage level, otherwise the coarsest one that
+ * covers the range and gives at least 200 points.
  */
 export const NodeMetricsQuerySchema = z.object({
+	range: z
+		.enum(NODE_METRICS_RANGE_NAMES)
+		.optional()
+		.describe(
+			"Read the last 1h, 24h, 7d, 30d or 365d ending now. Give exactly one of `range` and `from`; `range` cannot be combined with `from` or `to`.",
+		),
 	series: z
 		.string()
 		.min(1)
+		.optional()
 		.describe(
-			"Comma-separated series names or `prefix.*` patterns such as `disk.*`; at most 64 entries, and at most 512 expanded names.",
+			"Comma-separated series names or `prefix.*` patterns such as `disk.*`; at most 64 entries and 512 expanded names. Omit for an overview: `up`, `uptime`, `cpu.total`, `load.1`, `mem.total_bytes`, `mem.available_bytes`, the first filesystem's total/used bytes when known, and the network rates.",
 		),
-	from: z.string().min(1).describe("Range start, ISO 8601 or Unix epoch milliseconds."),
-	to: z.string().min(1).describe("Range end (exclusive), ISO 8601 or Unix epoch milliseconds."),
+	from: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Range start (inclusive), ISO 8601 or Unix epoch milliseconds; required unless `range` is given."),
+	to: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Range end (exclusive), ISO 8601 or Unix epoch milliseconds; defaults to now and needs `from`."),
+	points: z
+		.string()
+		// OpenAPI describes query parameters as strings, so this stays a string the route parses: a decimal
+		// integer from 0 to 1000, while an empty or non-decimal value is a 400 here rather than a silent 0.
+		.regex(/^\d{1,4}$/, { error: "must be an integer from 0 to 1000" })
+		.optional()
+		.describe(
+			"Merge each series' buckets down to at most this many (0 returns no buckets); the series summary still covers the range. Cannot be combined with `level`.",
+		),
+	fields: z
+		.string()
+		.optional()
+		.describe(
+			`Comma-separated subset of \`${NODE_METRICS_FIELDS.join(",")}\`; \`t\` is always included. Every field is returned when absent.`,
+		),
 	level: z
 		.enum(["1", "2", "3", "4"])
 		.optional()
@@ -419,26 +455,38 @@ export const NodeMetricsQuerySchema = z.object({
 export const MetricBucketPointSchema = z
 	.object({
 		t: z.number().describe("Bucket start, Unix epoch milliseconds, aligned to the level's width."),
-		count: z.number().describe("Samples in the bucket."),
-		avg: z.number().describe("`sum / count`."),
-		sum: z.number().describe("The sum of the samples; a delta's total over the bucket."),
-		min: z.number(),
-		max: z.number(),
-		last: z.number(),
+		count: z.number().optional().describe("Samples in the bucket."),
+		avg: z.number().optional().describe("`sum / count`."),
+		sum: z.number().optional().describe("The sum of the samples; a delta's total over the bucket."),
+		min: z.number().optional(),
+		max: z.number().optional(),
+		last: z.number().optional(),
 	})
 	.meta({ id: "MetricBucketPoint" });
 
-/** One series in the requested range. A series with no bucket in the range keeps an empty list. */
+/** A series' values over the whole requested range, computed before `points` merges the buckets. */
+export const MetricSeriesSummarySchema = z
+	.object({
+		min: z.number().describe("Smallest bucket minimum."),
+		avg: z.number().describe("Sample-weighted average: total sum / total count."),
+		max: z.number().describe("Largest bucket maximum."),
+		last: z.number().describe("Last value of the newest bucket."),
+	})
+	.meta({ id: "MetricSeriesSummary" });
+
+/** One series in the requested range. A series with no bucket in the range has an empty list and a null summary. */
 export const MetricSeriesReadingSchema = z
 	.object({
 		name: z.string(),
 		kind: MetricKindSchema,
+		unit: z.enum(METRIC_UNITS).describe("The series' unit; values are raw numbers, not formatted strings."),
 		lastSeenAt: z.string().describe("When the series last received a sample, even outside the range."),
+		summary: MetricSeriesSummarySchema.nullable().describe("Values over the requested range; null without a bucket."),
 		buckets: z.array(MetricBucketPointSchema),
 	})
 	.meta({ id: "MetricSeriesReading" });
 
-/** `GET /api/nodes/{id}/metrics`: the stored buckets of the requested series. */
+/** `GET /api/nodes/{id}/metrics`: the stored buckets, unit and range summary of the requested series. */
 export const NodeMetricsResponseSchema = z
 	.object({
 		level: MetricLevelSchema,

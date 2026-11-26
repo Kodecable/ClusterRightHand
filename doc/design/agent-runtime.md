@@ -143,7 +143,6 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 |---|---|
 | `list_nodes` | The nodes the owner can access |
 | `node_info` | Node facts and notes |
-| `node_metrics` | A node's stored [metrics](metrics.md#reading) over a range: minimum, average, maximum, last and at most 60 points per series; node access, no rule decision |
 | `exec` | Run a command |
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |

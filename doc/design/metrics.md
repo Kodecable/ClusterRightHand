@@ -296,14 +296,25 @@ the WebUI is the only place that turns them into the browser's local time and na
 
 ## Reading
 
-- **API.** `GET /api/nodes/:id/metrics?series=…&from=…&to=…` returns the buckets of the coarsest level
-  whose retention covers `from` and whose bucket gives at least 200 points in the range, or a level the
-  caller names. A range that lands exactly on a level's retention (24 hours, 7 days, 30 days, 365 days)
-  keeps that level: one bucket of the candidate level is allowed as tolerance, because the caller
-  computes `from` a few seconds before crhs reads the request. The expanded series multiplied by the
-  buckets of the chosen level may not exceed 200,000 points; the automatic choice moves to a coarser
-  level when the finer one would exceed it, and an explicit `level` that exceeds it answers 400. The
-  response also carries the node's traffic period and, when the collector still knows it, the report
+- **API.** `GET /api/nodes/:id/metrics` returns stored buckets, one series per name. Give exactly one of
+  `range` (`1h`, `24h`, `7d`, `30d` or `365d`, meaning `[now - range, now)`) or `from` (ISO 8601 or epoch
+  milliseconds); `to` defaults to now and may be given only with `from`. `series` is optional: without it
+  the read returns an overview of `up`, `uptime`, `cpu.total`, `load.1`, `mem.total_bytes`,
+  `mem.available_bytes`, the first filesystem's `disk.<name>.total_bytes` and `disk.<name>.used_bytes`
+  (the WebUI's first-filesystem rule, omitted when no filesystem is known), `net.rx_bytes_per_sec` and
+  `net.tx_bytes_per_sec`; names and `prefix.*` patterns select others. `points` merges each series'
+  buckets down to at most that many (0 returns none), `fields` keeps only the named bucket values among
+  `count`, `avg`, `sum`, `min`, `max` and `last` (`t` always stays), and `points` cannot be combined with
+  `level`. Each series reports its `unit` (`ratio`, `bytes`, `bytes_per_sec`, `load`, `seconds`, `packets`
+  or `count`, with raw values) and a `summary` of `min`, `avg` (sample-weighted), `max` and `last` over
+  the whole range, computed before the points merge and null when the range has no bucket. The read uses
+  the coarsest level whose retention covers the range and whose bucket gives at least 200 points in the
+  range, or a level the caller names. A range that lands exactly on a level's retention (24 hours, 7 days,
+  30 days, 365 days) keeps that level: one bucket of the candidate level is allowed as tolerance, because
+  the caller computes `from` a few seconds before crhs reads the request. The expanded series multiplied
+  by the buckets of the chosen level may not exceed 200,000 points; the automatic choice moves to a
+  coarser level when the finer one would exceed it, and an explicit `level` that exceeds it answers 400.
+  The response also carries the node's traffic period and, when the collector still knows it, the report
   order of its filesystems. Users see the metrics of the nodes they have node access to; administrators
   see every node's.
 - **Latest sample.** crhs keeps each node's latest sample in memory, and the node list and node detail
@@ -330,9 +341,8 @@ the WebUI is the only place that turns them into the browser's local time and na
   crha release is older than crhs's own. The warning's reason can name the node's SSH route (a
   `user@host:port` or a jump host), so only administrators get the full reason; other viewers get a
   generic "metrics collection failed" with the same since instant.
-- **Agent tool.** `node_metrics(node, series, range)` returns, per series, the minimum, average, maximum
-  and last value over the range and at most 60 points. It reads stored data, so like `node_info` it
-  needs node access and no rule decision.
+- **API only.** Metrics are read only through that route: the built-in agent calls it with `api_request`
+  (typically `?range=24h&points=24&fields=avg,max`), and MCP clients cannot read host metrics.
 
 ## Settings
 
@@ -376,7 +386,6 @@ new name every sample) even after the names pass the form check.
 - [Protocol](protocol.md): minor 2 and the optional `metrics.collect` command.
 - [Execution plane](execution.md): the SSH metrics script on the pooled connection.
 - [Data model](data-model.md): `metric_series`, `metric_buckets`, `node_traffic` and their retention.
-- [Agent runtime](agent-runtime.md): `node_metrics`.
 - [Access control](access-control.md): metrics follow node access; resetting a traffic period is
   administrator-only.
 - [WebUI](webui.md): the node page charts and the node list figures.

@@ -48,7 +48,7 @@ export function buildAvailabilityDays(
 	for (let t = first; t < toMs; t += DAY_MS) {
 		const bucket = byStart.get(t);
 		const count = bucket?.count ?? 0;
-		days.push({ t, ratio: bucket !== undefined && count > 0 ? bucket.avg : null, count });
+		days.push({ t, ratio: bucket !== undefined && count > 0 ? (bucket.avg ?? null) : null, count });
 	}
 	return days;
 }

@@ -65,7 +65,6 @@ Clients that support only stdio need a third-party bridge.
 |---|---|
 | `list_nodes` | The nodes you can access, with their status and privilege mode |
 | `node_info` | Facts and notes of one or more nodes |
-| `node_metrics` | Stored host metrics of a node over 1h, 24h, 7d, 30d or 365d: per-series minimum, average, maximum, last and up to 60 points |
 | `exec` | Run a command |
 | `read_file` | Read a page of lines from a file on a node, or of a library |
 | `write_file` | Create or overwrite a file |
@@ -81,6 +80,9 @@ Clients that support only stdio need a third-party bridge.
 Your client shows each tool's arguments and descriptions. The library tools reach the libraries of the
 user whose API token you use: their own `user:<username>` library and the libraries of their groups.
 The token never gets the administrator bypass, even when its user is an administrator.
+
+MCP clients cannot read host metrics. Metrics are served only through the API, and the built-in agent
+reads them with its `api_request` tool; the MCP surface has no metrics tool.
 
 ### Targets and batching
 

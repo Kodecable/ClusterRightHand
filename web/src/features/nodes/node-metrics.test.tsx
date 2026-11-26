@@ -1,4 +1,10 @@
-import type { MetricBucketPoint, MetricSeriesReading, NodeMetricsResponse, User } from "@crh/api";
+import {
+	type MetricBucketPoint,
+	type MetricSeriesReading,
+	metricUnit,
+	type NodeMetricsResponse,
+	type User,
+} from "@crh/api";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/lib/session";
@@ -79,12 +85,29 @@ function bucket(
 	};
 }
 
+/** The API's range summary for the buckets, as a read without `points` computes it. */
+function summaryOf(buckets: MetricBucketPoint[]): MetricSeriesReading["summary"] {
+	if (buckets.length === 0) return null;
+	let count = 0;
+	let sum = 0;
+	let min = Number.POSITIVE_INFINITY;
+	let max = Number.NEGATIVE_INFINITY;
+	for (const bucket of buckets) {
+		count += bucket.count ?? 0;
+		sum += bucket.sum ?? 0;
+		min = Math.min(min, bucket.min ?? 0);
+		max = Math.max(max, bucket.max ?? 0);
+	}
+	const last = buckets[buckets.length - 1]?.last ?? 0;
+	return { min, avg: count > 0 ? sum / count : last, max, last };
+}
+
 function reading(
 	name: string,
 	buckets: MetricBucketPoint[],
 	lastSeenAt = new Date().toISOString(),
 ): MetricSeriesReading {
-	return { name, kind: "gauge", lastSeenAt, buckets };
+	return { name, kind: "gauge", unit: metricUnit(name), lastSeenAt, summary: summaryOf(buckets), buckets };
 }
 
 function response(series: MetricSeriesReading[], bucketMs = MINUTE): NodeMetricsResponse {

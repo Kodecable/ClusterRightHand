@@ -78,9 +78,20 @@ interface SummaryItem {
 	title?: string;
 }
 
+/**
+ * The WebUI never sends `fields`, so every non-`t` bucket value is present in its responses. The API
+ * schema marks them optional because an agent may ask for a subset (doc/design/metrics.md "Reading").
+ */
+type FullMetricBucket = Required<MetricBucketPoint>;
+
+/** The buckets of a series, with every field present. */
+function bucketsOf(reading: MetricSeriesReading | undefined): FullMetricBucket[] {
+	return (reading?.buckets ?? []) as FullMetricBucket[];
+}
+
 /** A bucket by its start, for one series. */
-function bucketMap(reading: MetricSeriesReading | undefined): Map<number, MetricBucketPoint> {
-	return new Map((reading?.buckets ?? []).map((bucket) => [bucket.t, bucket]));
+function bucketMap(reading: MetricSeriesReading | undefined): Map<number, FullMetricBucket> {
+	return new Map(bucketsOf(reading).map((bucket) => [bucket.t, bucket]));
 }
 
 /**
@@ -106,13 +117,13 @@ function timesOf(
 }
 
 /** The newest bucket of a series, or undefined when it has none in the selected range. */
-function latestBucket(reading: MetricSeriesReading | undefined): MetricBucketPoint | undefined {
-	return reading?.buckets[reading.buckets.length - 1];
+function latestBucket(reading: MetricSeriesReading | undefined): FullMetricBucket | undefined {
+	return bucketsOf(reading).at(-1);
 }
 
 /** The largest single observed value in the window, e.g. the memory a node had installed. */
 function windowMax(reading: MetricSeriesReading | undefined): number | undefined {
-	const buckets = reading?.buckets ?? [];
+	const buckets = bucketsOf(reading);
 	if (buckets.length === 0) return undefined;
 	let max = buckets[0]?.max ?? 0;
 	for (const bucket of buckets) if (bucket.max > max) max = bucket.max;
@@ -124,7 +135,7 @@ function line(
 	label: string,
 	times: readonly number[],
 	reading: MetricSeriesReading | undefined,
-	value: (bucket: MetricBucketPoint) => number,
+	value: (bucket: FullMetricBucket) => number,
 ): MetricChartSeries {
 	const buckets = bucketMap(reading);
 	return {

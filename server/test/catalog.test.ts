@@ -1,5 +1,5 @@
 import type { JsonTaskResult, TaskSpec } from "@crh/protocol";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
@@ -7,7 +7,6 @@ import { type Cluster, countOutputLines, type TaskView } from "../src/cluster/cl
 import { taskGroupOutcome, taskOutcome } from "../src/cluster/outcome.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
 import { CallRunner } from "../src/extensions/call-runner.ts";
-import { MetricsStore } from "../src/metrics/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { callTool } from "../src/tools/adapter.ts";
@@ -265,7 +264,6 @@ describe("the tool catalog", () => {
 		expect(TOOLS.map((entry) => entry.name)).toEqual([
 			"list_nodes",
 			"node_info",
-			"node_metrics",
 			"exec",
 			"read_file",
 			"write_file",
@@ -291,7 +289,6 @@ describe("the tool catalog", () => {
 		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
 			list_nodes: "json",
 			node_info: "json",
-			node_metrics: "json",
 			exec: "text",
 			read_file: "text",
 			write_file: "json",
@@ -1916,197 +1913,6 @@ describe("the privileged tool parameter", () => {
 			expect(created[0]).toMatchObject({ privileged: true });
 			expect(jsonOf(result)).toMatchObject({ bytes: 1, created: true });
 			expect(result.details).toMatchObject({ task_id: "t1", privileged: true });
-		} finally {
-			await f.db.destroy();
-		}
-	});
-});
-
-describe("the node_metrics tool", () => {
-	it("reads a node's stored series, expands patterns and downsamples to 60 points", async () => {
-		const f = await fixture("metrics-tool-user");
-		const store = new MetricsStore(f.db, { timer: false });
-		try {
-			const now = Date.now();
-			const minute = 60_000;
-			// One sample every five minutes over a day: at level 2 that is 288 buckets, merged down to 60.
-			for (let index = 0; index < 288; index++) {
-				const slot = Math.floor(now / minute) * minute - (287 - index) * 5 * minute;
-				store.record(f.nodeId, slot, [
-					{ name: "cpu.total", kind: "gauge", value: 0.1 + index / 1000 },
-					{ name: "mem.total_bytes", kind: "gauge", value: 8 * 1024 ** 3 },
-					{ name: "mem.available_bytes", kind: "gauge", value: 4 * 1024 ** 3 },
-					{ name: "disk.root.used_bytes", kind: "gauge", value: 1024 ** 3 },
-					{ name: "up", kind: "gauge", value: 1 },
-				]);
-			}
-			await store.flush();
-			const result = await tool("node_metrics").handler(
-				{ node: "web-1", series: ["cpu.total", "disk.*"], range: "24h" } as never,
-				{ ...f.base, metrics: store },
-			);
-			const value = jsonOf(result);
-			expect(value).toMatchObject({ node: "web-1", range: "24h", level: 2, bucket_ms: 300_000 });
-			const entries = value.series as Record<string, unknown>[];
-			expect(entries.map((entry) => entry.name)).toEqual(["cpu.total", "disk.root.used_bytes"]);
-			const cpu = entries[0] as {
-				kind: string;
-				unit: string;
-				min: string;
-				avg: string;
-				max: string;
-				last: string;
-				last_seen_at: string;
-				stopped: boolean;
-				points: [number, string][];
-			};
-			expect(cpu.kind).toBe("gauge");
-			expect(cpu.unit).toBe("percent");
-			expect(cpu.min).toMatch(/%$/);
-			expect(cpu.avg).toMatch(/%$/);
-			expect(cpu.max).toMatch(/%$/);
-			expect(cpu.points.length).toBeLessThanOrEqual(60);
-			expect(cpu.points.length).toBeGreaterThan(0);
-			expect(typeof cpu.points[0]?.[0]).toBe("number");
-			expect(cpu.points[0]?.[1]).toMatch(/%$/);
-			expect(cpu.stopped).toBe(false);
-			expect(Date.parse(cpu.last_seen_at)).toBeGreaterThan(0);
-			const disk = entries[1] as { unit: string; points: unknown[] };
-			expect(disk.unit).toBe("bytes");
-			expect(disk.points.length).toBeLessThanOrEqual(60);
-		} finally {
-			await store.close();
-			await f.db.destroy();
-		}
-	});
-
-	it("reports a stopped series with its last-seen time and no points in the range", async () => {
-		const f = await fixture("metrics-stopped-user");
-		const store = new MetricsStore(f.db, { timer: false });
-		try {
-			const slot = Date.now() - 3 * 60 * 60 * 1000;
-			store.record(f.nodeId, slot, [{ name: "disk.root.used_bytes", kind: "gauge", value: 1024 }]);
-			await store.flush();
-			const result = await tool("node_metrics").handler(
-				{ node: "web-1", series: ["disk.root.used_bytes"], range: "1h" } as never,
-				{ ...f.base, metrics: store },
-			);
-			const entry = (jsonOf(result).series as Record<string, unknown>[])[0];
-			expect(entry).toMatchObject({
-				name: "disk.root.used_bytes",
-				stopped: true,
-				points: [],
-				note: "no samples in this range",
-			});
-			expect(entry?.last_seen_at).toBe(new Date(slot).toISOString());
-		} finally {
-			await store.close();
-			await f.db.destroy();
-		}
-	});
-
-	it("refuses a node the caller cannot access", async () => {
-		const f = await fixture("metrics-access-user");
-		const store = new MetricsStore(f.db, { timer: false });
-		try {
-			const other = await createUser(f.db, { username: "metrics-private", kind: "member" });
-			await addNode(f.db, other.id, { name: "private-node" });
-			const result = await callTool(
-				tool("node_metrics") as never,
-				{ node: "private-node", series: ["up"], range: "1h" },
-				{ ...f.base, metrics: store },
-				{ via: "mcp" },
-			);
-			expect(result.isError).toBe(true);
-			expect(jsonOf(result)).toEqual({
-				error: { code: "no_such_node", message: "no node private-node that you can access" },
-			});
-		} finally {
-			await store.close();
-			await f.db.destroy();
-		}
-	});
-
-	it("keeps an inaccessible node hidden even when it has stored series", async () => {
-		const f = await fixture("metrics-hidden-user");
-		const store = new MetricsStore(f.db, { timer: false });
-		try {
-			const other = await createUser(f.db, { username: "metrics-private", kind: "member" });
-			const privateNode = await addNode(f.db, other.id, { name: "private-with-series" });
-			store.record(privateNode.id, Date.now(), [
-				{ name: "up", kind: "gauge", value: 1 },
-				{ name: "cpu.total", kind: "gauge", value: 0.5 },
-			]);
-			await store.flush();
-			const result = await callTool(
-				tool("node_metrics") as never,
-				{ node: "private-with-series", series: ["up"], range: "1h" },
-				{ ...f.base, metrics: store },
-				{ via: "mcp" },
-			);
-			expect(result.isError).toBe(true);
-			expect(jsonOf(result)).toEqual({
-				error: { code: "no_such_node", message: "no node private-with-series that you can access" },
-			});
-		} finally {
-			await store.close();
-			await f.db.destroy();
-		}
-	});
-
-	it("reads each accepted range as the window ending now", async () => {
-		const f = await fixture("metrics-range-user");
-		const now = Date.UTC(2026, 5, 1, 12, 0, 0);
-		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
-		const reads: { from: number; to: number }[] = [];
-		const store = {
-			seriesNames: async () => ["up"],
-			chooseLevel: () => 2,
-			read: async (_nodeId: string, _names: string[], from: number, to: number) => {
-				reads.push({ from, to });
-				return [{ name: "up", kind: "gauge", lastSeenAt: new Date(to).toISOString(), buckets: [] }];
-			},
-			// A node with no traffic row yet: the tool reports null rather than inventing totals.
-			traffic: async () => undefined,
-		} as unknown as MetricsStore;
-		try {
-			const hour = 60 * 60 * 1000;
-			const cases: [string, number][] = [
-				["1h", hour],
-				["24h", 24 * hour],
-				["7d", 7 * 24 * hour],
-				["30d", 30 * 24 * hour],
-				["365d", 365 * 24 * hour],
-			];
-			for (const [range, duration] of cases) {
-				const result = await tool("node_metrics").handler({ node: "web-1", series: ["up"], range } as never, {
-					...f.base,
-					metrics: store,
-				});
-				expect(result.isError, range).toBe(false);
-				expect(reads.at(-1), range).toEqual({ from: now - duration, to: now });
-				const value = jsonOf(result);
-				expect(value.from, range).toBe(new Date(now - duration).toISOString());
-				expect(value.to, range).toBe(new Date(now).toISOString());
-				expect(value.traffic, range).toBeNull();
-			}
-		} finally {
-			nowSpy.mockRestore();
-			await f.db.destroy();
-		}
-	});
-
-	it("reports metrics as unavailable without a store", async () => {
-		const f = await fixture("metrics-unavailable-user");
-		try {
-			const result = await tool("node_metrics").handler(
-				{ node: "web-1", series: ["up"], range: "1h" } as never,
-				f.base,
-			);
-			expect(result.isError).toBe(true);
-			expect(jsonOf(result)).toEqual({
-				error: { code: "metrics_unavailable", message: "host metrics are not available on this server" },
-			});
 		} finally {
 			await f.db.destroy();
 		}

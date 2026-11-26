@@ -43,6 +43,7 @@ import type {
 	UserGroup,
 	UserSettings,
 } from "@crh/api";
+import { metricUnit } from "@crh/api";
 import { expect, type Page } from "@playwright/test";
 import type { EntryRecord as SessionEntry, SessionEvent } from "../src/features/sessions/session-events";
 
@@ -511,7 +512,24 @@ export function nodeMetricsResponse(overrides: Partial<NodeMetricsResponse> = {}
 		{ name: "net.tx_bytes_per_sec", kind: "gauge" as const, lastSeenAt, buckets: buckets(() => 1024) },
 		{ name: "net.rx_bytes", kind: "delta" as const, lastSeenAt, buckets: buckets(() => 4096) },
 		{ name: "net.tx_bytes", kind: "delta" as const, lastSeenAt, buckets: buckets(() => 2048) },
-	];
+	].map((entry) => {
+		let count = 0;
+		let sum = 0;
+		let min = Number.POSITIVE_INFINITY;
+		let max = Number.NEGATIVE_INFINITY;
+		for (const bucket of entry.buckets) {
+			count += bucket.count;
+			sum += bucket.sum;
+			min = Math.min(min, bucket.min);
+			max = Math.max(max, bucket.max);
+		}
+		const last = entry.buckets.at(-1)?.last ?? 0;
+		return {
+			...entry,
+			unit: metricUnit(entry.name),
+			summary: { min, avg: count > 0 ? sum / count : last, max, last },
+		};
+	});
 	return {
 		level: 1,
 		bucketMs: minute,
