@@ -46,14 +46,52 @@ ClusterRightHand（CRH）是一个自托管的多节点 Agent 平台，带有严
 
 ## 快速开始
 
-crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还需要一个带 TLS 的反向代理。
+以下步骤在一台 glibc Linux 主机（amd64 或 arm64）上跑起 crhs 和第一个节点，暂不需要域名和 TLS，其余工作交给 Agent。您可以把本文档步骤发给 AI 或 Coding Agent，请它协助完成；更多细节/选项见 [Install](doc/guide/install.md)，节点、任务、规则、审批和特权这些概念见 [Concepts](doc/guide/concepts.md)。
 
-1. [安装 crhs](doc/guide/install.md)（二进制包或容器镜像），初始化（运行 `sudo crhs init`，容器首次启动时自动完成），并配置模型提供方。
-2. 用 `sudo crha enroll` [注册节点](doc/guide/install.md#enroll-a-node)，或[添加 SSH 节点](doc/guide/install.md#add-an-ssh-node)。
-3. 在 WebUI 里新建会话，或[接入 MCP 客户端](doc/guide/mcp.md)。
+1. 通过 SSH 连接主机，并保持一个端口转发：
 
-想先了解节点、任务、规则、审批和特权这些概念，可以读 [Concepts](doc/guide/concepts.md)。
+   ```sh
+   ssh -L 8080:127.0.0.1:8080 you@host
+   ```
 
+2. 安装 Docker（Podman 用法相同），并选择数据库。推荐 PostgreSQL：SQLite 只能搜索会话标题，且两者之后无法互相迁移（[SQLite and PostgreSQL](doc/guide/operations.md#sqlite-and-postgresql)）。
+3. 写好 `/srv/crhs/init.json` 并启动 crhs。它监听主机的 `127.0.0.1:8080`，只能经 SSH 转发访问；`public_url` 暂时留空。
+
+   ```json
+   {
+     "version": 1,
+     "listen": { "host": "127.0.0.1", "port": 8080 },
+     "database": { "driver": "postgres", "url": "postgres://crh:secret@127.0.0.1/crh" },
+     "public_url": "",
+     "admin": { "username": "admin", "display_name": "Admin", "password": "change-me" },
+     "service": { "install": false }
+   }
+   ```
+
+   依据您的数据库安装方式，您可能需要通过网络或 Unix socket 来让容器内的 crhs 访问数据库，如果不确定，您可以将本文档和您的情况提供给 AI 或 Coding Agent 寻求帮助/建议。
+
+   ```sh
+   sudo install -d -o 1000 -g 1000 -m 0700 /srv/crhs
+   sudoedit /srv/crhs/init.json
+   sudo chown 1000:1000 /srv/crhs/init.json && sudo chmod 600 /srv/crhs/init.json
+   sudo docker run -d --name crhs --restart unless-stopped --network host \
+     -v /srv/crhs:/crhs-data ghcr.io/kodecable/crhs:<version>
+   ```
+
+   首次启动时按 `init.json` 初始化；之后删除该文件，它含有管理员密码。
+4. 在你自己的电脑上经转发打开 <http://localhost:8080> WebUI，登录，添加模型提供方并试着对话。
+5. 在 **节点** → **新建节点** 中复制令牌。在同一台主机上用发布包安装 crha 并注册：
+
+   ```sh
+   tar -xzf crha-<version>-linux-<arch>.tar.gz && cd crha-<version>-linux-<arch>
+   sudo ./install.sh   # 会运行 sudo crha enroll
+   ```
+
+   地址填 `http://127.0.0.1:8080` 并粘贴令牌，特权模式选 `forward`，允许本机 root 打开本地批准窗口，信任条目留空。之后特权任务会等待，直到你在主机上运行 `sudo crha approve --for 10m`；`sudo crha lock` 可提前关闭窗口。
+6. 核对 enroll 打印的密钥指纹后，在 **节点** 中批准该节点。
+7. 此后的部署和修改都可以直接在 WebUI 会话中询问：配置域名、TLS 和 `public_url`，注册 Passkey 并加入节点的信任配置，改用 Docker Compose，引入其他机器，等等。其他 crha 节点从别的机器连接，需要先配好域名和 TLS；SSH 节点不需要。需要特权任务时，按上面的方法临时打开本地窗口。示例提示词：
+
+   > 检查各节点和 crhs 的状态。阅读 crhs 的文档，然后问我接下来想配置什么：域名和 TLS、Passkey 签名与节点信任配置、Docker Compose，或引入更多机器。先给出方案，等我确认后再动手。需要本地批准窗口的特权任务请提前告诉我。
 ## 文档
 
 **使用指南**

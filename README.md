@@ -54,18 +54,70 @@ API, so none of them can bypass the checks. See [Architecture](doc/design/archit
 
 ## Getting started
 
-You need a glibc Linux host (amd64 or arm64) for crhs and for each node, and a reverse proxy with TLS in
-front of crhs.
+This gets crhs and a first node running on one glibc Linux host (amd64 or arm64), with no domain or TLS
+yet; the agent helps with the rest. You can give these steps to an AI or coding agent and ask it to
+help. [Install](doc/guide/install.md) has more details and options, and [Concepts](doc/guide/concepts.md)
+the vocabulary: nodes, tasks, rules, approvals and privilege.
 
-1. [Install crhs](doc/guide/install.md) from the tar or the container image and initialize it
-   (`sudo crhs init`, or the first container start), then configure a model provider.
-2. [Enroll a node](doc/guide/install.md#enroll-a-node) with `sudo crha enroll`, or
-   [add an SSH node](doc/guide/install.md#add-an-ssh-node).
-3. Start a session in the WebUI, or [connect an MCP client](doc/guide/mcp.md).
+1. Connect to the host over SSH with a port forward, and keep it open:
 
-Read the [concepts](doc/guide/concepts.md) first if you want the vocabulary: nodes, tasks, rules,
-approvals and privilege.
+   ```sh
+   ssh -L 8080:127.0.0.1:8080 you@host
+   ```
 
+2. Install Docker (Podman works the same) and choose the database. PostgreSQL is recommended: SQLite
+   searches only session titles, and there is no migration between the two later
+   ([SQLite and PostgreSQL](doc/guide/operations.md#sqlite-and-postgresql)).
+3. Write `/srv/crhs/init.json` and start crhs. It listens on `127.0.0.1:8080` of the host, so only the
+   SSH forward reaches it; leave `public_url` empty for now.
+
+   ```json
+   {
+     "version": 1,
+     "listen": { "host": "127.0.0.1", "port": 8080 },
+     "database": { "driver": "postgres", "url": "postgres://crh:secret@127.0.0.1/crh" },
+     "public_url": "",
+     "admin": { "username": "admin", "display_name": "Admin", "password": "change-me" },
+     "service": { "install": false }
+   }
+   ```
+
+   Depending on how your database is installed, crhs in the container may reach it over the network or a
+   Unix socket; if you are unsure, give this document and your setup to an AI or coding agent for help.
+
+   ```sh
+   sudo install -d -o 1000 -g 1000 -m 0700 /srv/crhs
+   sudoedit /srv/crhs/init.json
+   sudo chown 1000:1000 /srv/crhs/init.json && sudo chmod 600 /srv/crhs/init.json
+   sudo docker run -d --name crhs --restart unless-stopped --network host \
+     -v /srv/crhs:/crhs-data ghcr.io/kodecable/crhs:<version>
+   ```
+
+   The first start initializes from `init.json`; delete it afterwards, as it holds the password.
+4. Open the WebUI at <http://localhost:8080> on your own computer, through the forward. Sign in, add a
+   model provider and try a conversation.
+5. In **Nodes** → **New node**, copy the token. On the same host, install crha from its release archive
+   and enroll it:
+
+   ```sh
+   tar -xzf crha-<version>-linux-<arch>.tar.gz && cd crha-<version>-linux-<arch>
+   sudo ./install.sh   # runs sudo crha enroll
+   ```
+
+   Answer `http://127.0.0.1:8080` and the token, choose the `forward` privileged mode, let local root
+   open the local approval window, and leave the trust entries empty. A privileged task then waits until
+   you run `sudo crha approve --for 10m` on the host; `sudo crha lock` closes the window early.
+6. Approve the node in **Nodes** after comparing the key fingerprint that enroll printed.
+7. From here on, ask in a WebUI session for any deployment or change: setting up a domain, TLS and
+   `public_url`, registering a Passkey and adding it to the node's trust configuration, moving to Docker
+   Compose, enrolling other machines, and so on. Other crha nodes connect from other machines, so they need the domain and TLS
+   first; SSH nodes do not. When the agent needs a privileged task, open a short local window as above.
+   For example:
+
+   > Check the state of the nodes and of crhs. Read the crhs documentation, then ask me what I want to
+   > set up next: a domain and TLS, Passkey signing and the node trust configuration, Docker Compose, or
+   > more machines. Propose a plan and wait for my confirmation before changing anything. Tell me when a
+   > privileged task needs the local approval window.
 ## Documentation
 
 **Guide**
