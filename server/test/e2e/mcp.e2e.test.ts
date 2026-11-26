@@ -72,6 +72,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 				"list_dir",
 				"list_nodes",
 				"node_info",
+				"node_metrics",
 				"job_cancel",
 				"job_list",
 				"job_wait",
