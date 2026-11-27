@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Db } from "../storage/db.ts";
+import { isPostgres } from "../storage/dialect.ts";
+import { withTransaction } from "../storage/library-rows.ts";
 import { newId } from "../util/id.ts";
 import { hashToken } from "./token-hash.ts";
 
@@ -56,6 +58,47 @@ export async function createWebSession(
 		})
 		.execute();
 	return { token, expiresAt };
+}
+
+/**
+ * Creates a session only while the password hash the login verified is still the user's current one
+ * and the account is active. A password reset or disable that commits first makes this insert affect
+ * no row, so a login that was in flight cannot resurrect the old credential.
+ *
+ * The user row is locked while the session is inserted. PostgreSQL needs `FOR SHARE` because a plain
+ * `INSERT … SELECT` reads the old committed row without conflicting with the reset's update; SQLite's
+ * `BEGIN IMMEDIATE` transaction already serializes the two. The reset's `UPDATE users` holds the same
+ * row, so either the login commits first and the reset deletes its new session, or the reset commits
+ * first and this check sees the new hash.
+ */
+export async function createWebSessionIfCredentialCurrent(
+	db: Db,
+	userId: string,
+	credentialHash: string,
+	meta: { ip?: string | null; userAgent?: string | null } = {},
+	now = new Date(),
+): Promise<{ token: string; expiresAt: Date } | undefined> {
+	const token = randomBytes(32).toString("base64url");
+	const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+	return withTransaction(db, async (trx) => {
+		const select = trx.selectFrom("users").select(["password_hash", "status"]).where("id", "=", userId);
+		const current = isPostgres(trx) ? await select.forShare().executeTakeFirst() : await select.executeTakeFirst();
+		if (current?.password_hash !== credentialHash || current.status !== "active") return undefined;
+		await trx
+			.insertInto("web_sessions")
+			.values({
+				id: newId(),
+				token_hash: hashToken(token),
+				user_id: userId,
+				created_at: now.toISOString(),
+				expires_at: expiresAt.toISOString(),
+				last_seen_at: now.toISOString(),
+				ip: meta.ip ?? null,
+				user_agent: meta.userAgent?.slice(0, 512) ?? null,
+			})
+			.execute();
+		return { token, expiresAt };
+	});
 }
 
 /** Returns the session's user, or undefined if the token is unknown, expired, or the user is disabled. */

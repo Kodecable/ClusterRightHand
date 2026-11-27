@@ -95,22 +95,48 @@ export async function createUser(
 	return toPublicUser(row);
 }
 
-/**
- * Stores a new hash for the user without checking the password policy. The login rehash uses it: the
- * password was already verified, so a changed minimum length must not refuse a correct login.
- */
-export async function storePasswordHash(db: Db, userId: string, password: string): Promise<void> {
-	const result = await db
-		.updateTable("users")
-		.set({ password_hash: await hashPassword(password) })
-		.where("id", "=", userId)
-		.executeTakeFirst();
-	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such user");
+/** Validates the policy and hashes a new password before a transaction is opened. */
+export async function preparePasswordHash(password: string): Promise<string> {
+	validatePassword(password);
+	return hashPassword(password);
 }
 
-export async function setPassword(db: Db, userId: string, password: string): Promise<void> {
-	validatePassword(password);
-	await storePasswordHash(db, userId, password);
+/**
+ * Writes a prepared hash, optionally only while `expectedHash` is still current. The conditional form
+ * lets a self-service change notice that an administrator reset the password in the meantime instead
+ * of overwriting the reset.
+ */
+export async function replacePasswordHash(
+	db: Db,
+	userId: string,
+	passwordHash: string,
+	expectedHash?: string,
+): Promise<boolean> {
+	let query = db.updateTable("users").set({ password_hash: passwordHash }).where("id", "=", userId);
+	if (expectedHash !== undefined) query = query.where("password_hash", "=", expectedHash);
+	const result = await query.executeTakeFirst();
+	return result.numUpdatedRows > 0n;
+}
+
+/**
+ * The login rehash: the password was just verified, so the policy check is skipped, and the write only
+ * happens while the verified old hash is still current. A concurrent reset wins instead of being
+ * overwritten by an old password.
+ */
+export async function rehashPasswordIfCurrent(
+	db: Db,
+	userId: string,
+	oldHash: string,
+	password: string,
+): Promise<string | undefined> {
+	const newHash = await hashPassword(password);
+	const written = await db
+		.updateTable("users")
+		.set({ password_hash: newHash })
+		.where("id", "=", userId)
+		.where("password_hash", "=", oldHash)
+		.executeTakeFirst();
+	return written.numUpdatedRows > 0n ? newHash : undefined;
 }
 
 export async function findUserByUsername(db: Db, username: string) {

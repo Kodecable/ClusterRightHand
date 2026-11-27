@@ -12,7 +12,7 @@ import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "../k
 import { initMasterKey, restoreMasterKey } from "../keys/setup.ts";
 import { signingKeyFingerprint } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
-import { createUser, findUserByUsername, setPassword } from "../users/service.ts";
+import { createUser, findUserByUsername, preparePasswordHash, replacePasswordHash } from "../users/service.ts";
 import { UserError } from "../util/errors.ts";
 
 /** Writes one audit event; injectable so a test can make the write fail. */
@@ -78,8 +78,14 @@ export async function changePassword(
 	const audit = options.audit ?? appendCliAudit;
 	const user = await findUserByUsername(db, username);
 	if (!user) throw new UserError(`no such user: ${username}`);
+	const passwordHash = await preparePasswordHash(password);
 	await db.transaction().execute(async (trx) => {
-		await setPassword(trx, user.id, password);
+		if (!(await replacePasswordHash(trx, user.id, passwordHash))) {
+			throw new UserError(`no such user: ${username}`);
+		}
+		// The reset is the WebUI administrator's: sessions opened with the old password end in the same
+		// transaction as the new hash.
+		await revokeUserWebSessions(trx, user.id);
 		await audit(
 			trx,
 			cliInput(
@@ -90,8 +96,6 @@ export async function changePassword(
 			),
 		);
 	});
-	// The reset is the WebUI administrator's: sessions opened with the old password end here too.
-	await revokeUserWebSessions(db, user.id);
 	return { id: user.id, username: user.username };
 }
 

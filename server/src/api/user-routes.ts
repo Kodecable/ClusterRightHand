@@ -32,9 +32,10 @@ import type { TerminalService } from "../terminals/registry.ts";
 import {
 	createUser,
 	getUserDetail,
+	preparePasswordHash,
 	queryDirectory,
 	queryUsers,
-	setPassword,
+	replacePasswordHash,
 	toPublicUser,
 	updateUser,
 } from "../users/service.ts";
@@ -384,8 +385,13 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		if (!body.password) throw new UserError("password is required");
 		const { id } = c.req.valid("param");
 		const actor = c.get("user");
-		await setPassword(db, id, body.password);
-		await revokeUserWebSessions(db, id);
+		const passwordHash = await preparePasswordHash(body.password);
+		await db.transaction().execute(async (trx) => {
+			if (!(await replacePasswordHash(trx, id, passwordHash))) throw new NotFoundError("no such user");
+			// A password change and its session revocation are one transaction: no window leaves old
+			// sessions usable after the new hash is visible.
+			await revokeUserWebSessions(trx, id);
+		});
 		// Every open stream of that user now holds a revoked WebUI session; end them with the reset.
 		await options.revalidateWebSessions?.(id);
 		// Tokens are opt-in: an administrator may reset a password without ending the user's MCP access.

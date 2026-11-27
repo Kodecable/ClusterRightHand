@@ -21,12 +21,23 @@ import { type CaptchaChallengeParameters, issueLoginChallenge, verifyLoginChalle
 import { HashBusyError } from "../auth/hash-gate.ts";
 import { LoginLimiter, loginAttemptKeys, passwordAttemptKeys } from "../auth/login-limiter.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
-import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
+import {
+	createWebSessionIfCredentialCurrent,
+	revokeUserWebSessions,
+	revokeWebSession,
+	SESSION_COOKIE,
+} from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
-import { findUserByUsername, setPassword, storePasswordHash, toPublicUser } from "../users/service.ts";
+import {
+	findUserByUsername,
+	preparePasswordHash,
+	rehashPasswordIfCurrent,
+	replacePasswordHash,
+	toPublicUser,
+} from "../users/service.ts";
 import { UserError } from "../util/errors.ts";
 import { cancelRevokedTokenWaits } from "./api-token-waits.ts";
 import { jsonError } from "./context.ts";
@@ -237,17 +248,32 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 				failed(!user ? "unknown_user" : !user.password_hash ? "no_password" : !ok ? "wrong_password" : "disabled");
 				throw new HTTPException(401, { message: "invalid username or password" });
 			}
-			// Clear only this address+username pair; the address key keeps its failures for other users. The
-			// successful attempt itself was reserved above, so take that one back.
-			limiter.clearUser(keys.userKey);
-			if (keys.addressKey !== undefined) limiter.refund(keys.addressKey);
 			// The password just verified, so the rehash stores it without the policy check a new password gets.
-			if (needsRehash(user.password_hash)) await storePasswordHash(db, user.id, password);
-
-			const { token, expiresAt } = await createWebSession(db, user.id, {
+			// Both the rehash and the session insert are conditional on the verified hash: a reset that lands
+			// in this window wins, and this login fails instead of issuing a session for the old password.
+			const verifiedHash = user.password_hash;
+			let credentialHash = verifiedHash;
+			if (needsRehash(verifiedHash)) {
+				const rehashed = await rehashPasswordIfCurrent(db, user.id, verifiedHash, password);
+				if (rehashed === undefined) {
+					failed("credential_changed");
+					throw new HTTPException(401, { message: "invalid username or password" });
+				}
+				credentialHash = rehashed;
+			}
+			const session = await createWebSessionIfCredentialCurrent(db, user.id, credentialHash, {
 				ip: address ?? null,
 				userAgent: c.req.header("user-agent"),
 			});
+			if (session === undefined) {
+				failed("credential_changed");
+				throw new HTTPException(401, { message: "invalid username or password" });
+			}
+			// Clear only this address+username pair after the session exists; the address key keeps its
+			// failures for other users. The successful attempt was reserved above, so take that one back.
+			limiter.clearUser(keys.userKey);
+			if (keys.addressKey !== undefined) limiter.refund(keys.addressKey);
+			const { token, expiresAt } = session;
 			setCookie(c, SESSION_COOKIE, token, {
 				path: "/",
 				httpOnly: true,
@@ -303,22 +329,32 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 		}
 		try {
 			const row = await db.selectFrom("users").select("password_hash").where("id", "=", me.userId).executeTakeFirst();
+			const currentHash = row?.password_hash;
 			let ok: boolean;
 			try {
-				ok = row?.password_hash ? await verifyPassword(current, row.password_hash) : false;
+				ok = currentHash ? await verifyPassword(current, currentHash) : false;
 			} catch (err) {
 				// A full gate is the server's state, not a guess: give the reservation back (503 follows).
 				if (err instanceof HashBusyError) for (const key of keys.all) limiter.refund(key);
 				throw err;
 			}
-			if (!ok) throw new HTTPException(403, { message: "current password is wrong" });
-			// The password was right, so this is not a failed attempt; only the other-session revocation
-			// below can fail. Clear before the write, like a successful login.
+			if (!ok || !currentHash) throw new HTTPException(403, { message: "current password is wrong" });
+			const nextHash = await preparePasswordHash(next);
+			const changed = await db.transaction().execute(async (trx) => {
+				// Only while the verified hash is still current: an administrator's reset that lands first wins.
+				if (!(await replacePasswordHash(trx, me.userId, nextHash, currentHash))) return false;
+				// Sign out every other session; keep this one, in the same transaction as the password write.
+				await revokeUserWebSessions(trx, me.userId, { except: me.sessionId });
+				return true;
+			});
+			if (!changed) {
+				throw rejected(c, 409, "the password changed during this request; try again", {
+					code: "password_changed",
+				});
+			}
+			// The password was right and the write committed: this is not a failed attempt.
 			limiter.clearUser(keys.userKey);
 			if (keys.addressKey !== undefined) limiter.refund(keys.addressKey);
-			await setPassword(db, me.userId, next);
-			// Sign out every other session; keep this one.
-			await revokeUserWebSessions(db, me.userId, { except: me.sessionId });
 			// Every other open stream now holds a session that no longer exists; this one stays open.
 			await options.revalidateWebSessions?.(me.userId);
 			// Web sessions and API tokens are separate: a password change leaves tokens usable unless asked.
