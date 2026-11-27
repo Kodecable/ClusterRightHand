@@ -1,7 +1,20 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { applyEdits, detectLineEnding } from "../src/cluster/ssh/file-edit.ts";
 
 const edit = (oldText: string, newText: string) => ({ oldText, newText });
+
+interface SharedCase {
+	id: string;
+	content: string;
+	edits: { oldText: string; newText: string }[];
+	output?: string;
+	error?: string;
+}
+
+const shared = JSON.parse(
+	readFileSync(new URL("../../test/interop/file_edit_cases.json", import.meta.url), "utf8"),
+) as { cases: SharedCase[] };
 
 describe("applyEdits", () => {
 	it("keeps bytes outside the matched span, including a lone CR", () => {
@@ -26,4 +39,23 @@ describe("applyEdits", () => {
 		}
 		expect(error).toMatchObject({ code: "edit_no_change" });
 	});
+});
+
+describe("shared file-edit cases", () => {
+	for (const testCase of shared.cases) {
+		it(testCase.id, () => {
+			let output: string | undefined;
+			let error: unknown;
+			try {
+				output = applyEdits(testCase.content, testCase.edits, detectLineEnding(testCase.content), "fixture");
+			} catch (err) {
+				error = err;
+			}
+			if (testCase.error !== undefined) {
+				expect(error).toMatchObject({ code: testCase.error });
+			} else {
+				expect(output).toBe(testCase.output);
+			}
+		});
+	}
 });

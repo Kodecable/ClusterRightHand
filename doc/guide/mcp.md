@@ -152,8 +152,10 @@ later ([Scope](../design/jobs.md#scope)).
 - `read_file` reads up to 2000 lines or 50 KiB per page; continue with `offset`.
 - `write_file` fails if the file exists unless `overwrite` is true. `mode` is an octal string such as
   `"0644"`.
-- `edit_file` requires each `old_text` to occur exactly once; all edits on a node apply together or not
-  at all.
+- An overwrite keeps the target's owner and group when the request omits them; naming only one
+  preserves the other.
+- `edit_file` requires each `old_text` to occur exactly once, counting overlapping occurrences;
+  all edits on a node apply together or not at all.
 
 ### Errors
 

@@ -1,0 +1,64 @@
+{
+	"cases": [
+		{
+			"id": "overlapping-aa-in-aaa",
+			"content": "aaa",
+			"edits": [{ "oldText": "aa", "newText": "X" }],
+			"error": "edit_ambiguous"
+		},
+		{
+			"id": "overlapping-aba-in-ababa",
+			"content": "ababa",
+			"edits": [{ "oldText": "aba", "newText": "X" }],
+			"error": "edit_ambiguous"
+		},
+		{
+			"id": "overlapping-runs",
+			"content": "aaaa",
+			"edits": [{ "oldText": "aa", "newText": "b" }],
+			"error": "edit_ambiguous"
+		},
+		{
+			"id": "unique-replacement",
+			"content": "abc",
+			"edits": [{ "oldText": "b", "newText": "X" }],
+			"output": "aXc"
+		},
+		{
+			"id": "disjoint-occurrences",
+			"content": "foo bar foo",
+			"edits": [{ "oldText": "foo", "newText": "x" }],
+			"error": "edit_ambiguous"
+		},
+		{
+			"id": "no-match",
+			"content": "abc",
+			"edits": [{ "oldText": "z", "newText": "x" }],
+			"error": "edit_no_match"
+		},
+		{
+			"id": "empty-old",
+			"content": "abc",
+			"edits": [{ "oldText": "", "newText": "x" }],
+			"error": "invalid_spec"
+		},
+		{
+			"id": "crlf-normalized",
+			"content": "one\r\ntwo\r\n",
+			"edits": [{ "oldText": "one\ntwo", "newText": "1\n2" }],
+			"output": "1\r\n2\r\n"
+		},
+		{
+			"id": "two-edits",
+			"content": "a b\n",
+			"edits": [{ "oldText": "a", "newText": "b" }, { "oldText": "b", "newText": "a" }],
+			"output": "b a\n"
+		},
+		{
+			"id": "overlapping-edits",
+			"content": "foo bar foo\n",
+			"edits": [{ "oldText": "bar foo", "newText": "x" }, { "oldText": "foo bar", "newText": "y" }],
+			"error": "edit_overlap"
+		}
+	]
+}

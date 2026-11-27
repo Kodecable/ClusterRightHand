@@ -28,6 +28,9 @@ crash, creation returns the existing task instead of running the command twice.
 | `file.pull` | Sends a whole regular file to crhs. |
 | `node.upgrade` | Receives a new crha binary from crhs and hands the install over to it; always privileged, and sent only to a node that lists it in `hello` ([crha self-upgrade](distribution.md#crha-self-upgrade)). |
 
+An occurrence is counted at every start position, including overlapping ones: `aa` occurs twice in
+`aaa`, so that edit is ambiguous.
+
 The spec and result shapes are in `packages/protocol/src/messages.ts`. File results travel in the task's
 structured result, never in the output stream. `file.push` and `file.pull` move their bytes on a data
 connection ([File plane](library.md#file-plane)), and so does `node.upgrade`'s binary. These nine kinds
@@ -77,6 +80,8 @@ detected line ending.
   the nine bits, so overwriting or editing a setuid file clears them. Changing setuid, setgid or sticky
   needs an `exec chmod` under a `spec` authorization
   ([Methods and targets](privilege.md#methods-and-targets)).
+- An overwrite keeps an omitted owner or group from the existing target. Specifying only one changes
+  only that one; it never replaces the other with the temporary file's identity.
 - Writes go through a temporary file in the target directory and a rename. In a world-writable directory
   without the sticky bit another user could swap the temporary file, so such directories are not
   supported targets.

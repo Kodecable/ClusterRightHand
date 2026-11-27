@@ -44,10 +44,26 @@ function normalizeWithOffsets(s: string): { text: string; offsets: Uint32Array }
 
 export const toBytesString = (s: string): string => Buffer.from(s, "utf8").toString("latin1");
 
-function countNonOverlapping(s: string, sub: string): number {
+/**
+ * Counts every start position of `sub`, including overlapping ones. KMP keeps this linear in the
+ * file size even for a long repeated substring such as `aaaa...` / `aa`.
+ */
+function countMatches(s: string, sub: string): number {
+	if (sub === "") return 0;
+	const prefix = new Uint32Array(sub.length);
+	for (let i = 1, j = 0; i < sub.length; i++) {
+		while (j > 0 && sub[i] !== sub[j]) j = prefix[j - 1] as number;
+		if (sub[i] === sub[j]) j++;
+		prefix[i] = j;
+	}
 	let n = 0;
-	for (let i = s.indexOf(sub); i >= 0; i = s.indexOf(sub, i + sub.length)) {
-		n++;
+	for (let i = 0, j = 0; i < s.length; i++) {
+		while (j > 0 && s[i] !== sub[j]) j = prefix[j - 1] as number;
+		if (s[i] === sub[j]) j++;
+		if (j === sub.length) {
+			n++;
+			j = prefix[j - 1] as number;
+		}
 	}
 	return n;
 }
@@ -85,7 +101,7 @@ export function applyEdits(
 				`could not find edits[${i}] in ${path}; old_text must match exactly including whitespace and newlines`,
 			);
 		}
-		const n = countNonOverlapping(normalized, old);
+		const n = countMatches(normalized, old);
 		if (n > 1) {
 			throw new FileTaskError(
 				"edit_ambiguous",

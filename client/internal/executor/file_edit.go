@@ -158,7 +158,7 @@ func applyEdits(content string, edits []protocol.Edit, ending, path string) (str
 		if idx < 0 {
 			return "", errf(protocol.CodeEditNoMatch, "could not find edits[%d] in %s; old_text must match exactly including whitespace and newlines", i, path)
 		}
-		if n := strings.Count(normalized, old); n > 1 {
+		if n := countMatches(normalized, old); n > 1 {
 			return "", errf(protocol.CodeEditAmbiguous, "found %d occurrences of edits[%d] in %s; add more context to make it unique", n, i, path)
 		}
 		start, end := offsets[idx], offsets[idx+len(old)]
@@ -184,4 +184,36 @@ func applyEdits(content string, edits []protocol.Edit, ending, path string) (str
 		return "", errf(protocol.CodeEditNoChange, "no changes made to %s; the replacements produced identical content", path)
 	}
 	return out, nil
+}
+
+// countMatches counts every start position of sub in s, including overlapping ones. KMP keeps the
+// count linear in the file size even for a long repeated substring such as "aaaa..."/"aa".
+func countMatches(s, sub string) int {
+	if sub == "" {
+		return 0
+	}
+	prefix := make([]int, len(sub))
+	for i, j := 1, 0; i < len(sub); i++ {
+		for j > 0 && sub[i] != sub[j] {
+			j = prefix[j-1]
+		}
+		if sub[i] == sub[j] {
+			j++
+		}
+		prefix[i] = j
+	}
+	n := 0
+	for i, j := 0, 0; i < len(s); i++ {
+		for j > 0 && s[i] != sub[j] {
+			j = prefix[j-1]
+		}
+		if s[i] == sub[j] {
+			j++
+		}
+		if j == len(sub) {
+			n++
+			j = prefix[j-1]
+		}
+	}
+	return n
 }

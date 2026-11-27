@@ -82,10 +82,15 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	case t.existing != nil:
 		mode = editMode(t.existing.mode)
 	}
-	if t.existing != nil && uid < 0 && gid < 0 {
-		// Best effort: only root can usually restore another owner, and a mode the file keeps never
-		// carries setuid or setgid anyway.
-		if err := tmp.Chown(t.existing.uid, t.existing.gid); err != nil && !errors.Is(err, syscall.EPERM) {
+	// An omitted owner or group on an existing file means "keep what the target has", not "-1 to the
+	// temporary file": the temporary file otherwise keeps the process's identity and silently changes
+	// the attribute the caller did not name.
+	bothOmitted := uid < 0 && gid < 0
+	uid, gid = resolveWriteIDs(uid, gid, t.existing)
+	if t.existing != nil {
+		// Best effort only for a plain overwrite, where both attributes were omitted; a partially
+		// specified owner or group must fail rather than silently change the other one.
+		if err := tmp.Chown(uid, gid); err != nil && !(bothOmitted && errors.Is(err, syscall.EPERM)) {
 			return nil, err
 		}
 	} else if uid >= 0 || gid >= 0 {
@@ -185,4 +190,19 @@ func syncDirectory(dirfd int) error {
 	}
 	defer unix.Close(fd)
 	return unix.Fsync(fd)
+}
+
+// resolveWriteIDs fills an omitted owner or group from an existing target. A new file keeps -1 for an
+// omitted value, so it is created with the caller's default identity.
+func resolveWriteIDs(uid, gid int, existing *fileAttr) (int, int) {
+	if existing == nil {
+		return uid, gid
+	}
+	if uid < 0 {
+		uid = existing.uid
+	}
+	if gid < 0 {
+		gid = existing.gid
+	}
+	return uid, gid
 }
