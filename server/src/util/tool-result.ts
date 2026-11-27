@@ -4,6 +4,7 @@
  * (doc/design/agent-runtime.md "Tool output"). Kept outside server/src/tools so the job layer and the tools can
  * both build one without a module cycle.
  */
+import { replaceInvalidText } from "./text.ts";
 
 /** One text content block as the agent and MCP surfaces carry it. */
 export interface ToolTextContent {
@@ -44,12 +45,17 @@ function result(content: ToolTextContent[], options: ResultOptions): ToolResult 
 /**
  * A text result. Each block renders its raw output first, then its note, so a task group can carry one
  * pair per node after its leading group note without ever joining two nodes into one block.
+ *
+ * Text a command wrote is not necessarily text a message can carry: a NUL byte or an unpaired surrogate is
+ * replaced here, before the result reaches the model or the durable store (util/text.ts).
  */
 export function textResult(blocks: readonly TextBlock[], options: ResultOptions = {}): ToolResult {
 	const content: ToolTextContent[] = [];
 	for (const block of blocks) {
-		if (block.output !== undefined && block.output !== "") content.push({ type: "text", text: block.output });
-		if (block.note !== undefined && block.note !== "") content.push({ type: "text", text: block.note });
+		if (block.output !== undefined && block.output !== "")
+			content.push({ type: "text", text: replaceInvalidText(block.output) });
+		if (block.note !== undefined && block.note !== "")
+			content.push({ type: "text", text: replaceInvalidText(block.note) });
 	}
 	return result(content, options);
 }

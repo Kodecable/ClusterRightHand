@@ -83,6 +83,12 @@ text block, not attachment notes or the sent time) and assistant text, not think
 or compactions. The function that extracts it tolerates any record
 shape, returning nothing instead of failing, and caps the text length. The record itself is unchanged.
 
+PostgreSQL text cannot hold U+0000 or a lone UTF-16 surrogate, and the column decodes a message's JSON
+back to text, so either one would fail the entry's insert; a failed commit fails the durable Session, and
+with it every conversation the agent runtime holds. Text that enters a message or leaves a tool is cleaned
+first (util/text.ts), and the search function replaces a NUL escape with U+FFFD as the second line of
+defense, so one malformed character cannot take the runtime down.
+
 Every keyword must match the title or some entry in the session tree. Matching is a substring scan
 without an index. A `pg_trgm` GIN index on the column is the next step when needed; full-text search
 would change tokenization and substring matching.

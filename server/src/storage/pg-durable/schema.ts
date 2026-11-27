@@ -181,16 +181,20 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 	 * `text` blocks. Thinking, tool calls, tool results, system prompts and compactions never contribute.
 	 * `jsonb_typeof` guards every step, so an unexpected shape yields NULL instead of an error; the result is
 	 * capped at 32768 characters. IMMUTABLE, as a generated column requires.
+	 *
+	 * `root` is the CTE that turns the stored record into the document the query reads. The two versions below
+	 * differ only there, and a released migration is never edited (this file, "Migrations"), so the body is
+	 * shared instead of copied.
 	 */
-	const entrySearchText: readonly string[] = [
-		`CREATE FUNCTION ${functions.entrySearchText}(entry_record text)
+	function searchTextFunction(head: "CREATE FUNCTION" | "CREATE OR REPLACE FUNCTION", root: string): string {
+		return `${head} ${functions.entrySearchText}(entry_record text)
 			RETURNS text
 			LANGUAGE sql
 			IMMUTABLE
 			PARALLEL SAFE
 			AS $search$
 				WITH root AS (
-					SELECT entry_record::jsonb AS document
+					${root}
 				),
 				messages AS (
 					SELECT message.value AS message, message.ordinality AS message_ord
@@ -248,11 +252,33 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 				SELECT left(string_agg(part_text, chr(10) ORDER BY message_ord, content_ord), 32768)
 				FROM ranked
 				WHERE part_text <> '' AND (NOT is_user OR text_rank = 1)
-			$search$`,
+			$search$`;
+	}
+
+	const entrySearchText: readonly string[] = [
+		searchTextFunction("CREATE FUNCTION", "SELECT entry_record::jsonb AS document"),
 		`ALTER TABLE ${tables.entries} ADD COLUMN search_text TEXT
 			GENERATED ALWAYS AS (${functions.entrySearchText}(record)) STORED`,
 	];
-	return [{ version: 1, statements: [...initialSchema, ...entrySearchText] }];
+	/**
+	 * Version 2 changes one thing: a NUL byte in the record no longer fails the commit. PostgreSQL text cannot
+	 * hold U+0000, and the function decodes a message's JSON string back to text for the search column, so a
+	 * `\u0000` in a user message, in an assistant text block or in what a tool reported made every insert of
+	 * that entry fail; a failed commit fails the durable Session, and the whole agent runtime goes down with it
+	 * until the entry is no longer written. The escape is replaced in the record's text before it is parsed, so
+	 * the searchable text holds U+FFFD where the NUL was. The record itself is unchanged: JSON escapes the NUL,
+	 * and only the generated column decodes it.
+	 */
+	const entrySearchTextWithoutNul: readonly string[] = [
+		searchTextFunction(
+			"CREATE OR REPLACE FUNCTION",
+			"SELECT replace(entry_record, '\\u0000', '\\ufffd')::jsonb AS document",
+		),
+	];
+	return [
+		{ version: 1, statements: [...initialSchema, ...entrySearchText] },
+		{ version: 2, statements: entrySearchTextWithoutNul },
+	];
 }
 
 /** A signed 64-bit advisory lock key for one purpose on one (schema, prefix) pair. */

@@ -11,6 +11,7 @@ import {
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import { UserError } from "../util/errors.ts";
+import { replaceInvalidText } from "../util/text.ts";
 import { syncSessionExtensions } from "./extension.ts";
 import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
@@ -215,6 +216,19 @@ export async function submitAsSchedule(
 	);
 }
 
+/**
+ * The message's text with the characters the store cannot hold replaced (util/text.ts): a NUL or an unpaired
+ * surrogate in what someone typed, pasted or attached would otherwise fail the durable commit and close the
+ * agent runtime's only Session.
+ */
+function cleanInput(
+	content: string | readonly { type: "text"; text: string }[],
+): string | readonly { type: "text"; text: string }[] {
+	return typeof content === "string"
+		? replaceInvalidText(content)
+		: content.map((block) => ({ ...block, text: replaceInvalidText(block.text) }));
+}
+
 async function submitInput(
 	host: RuntimeHost,
 	sessionId: string,
@@ -248,7 +262,7 @@ async function submitInput(
 	// With attachments the input is a crh entry whose data the transcript reads; without them it is a plain
 	// pi.user entry (doc/design/library.md "Chat attachments"). Either way the typed text is the first text
 	// block and the sent time the last (doc/design/agent-runtime.md "Message time").
-	const content = withSentTime(options.content ?? text, new Date(), timeZone);
+	const content = withSentTime(cleanInput(options.content ?? text), new Date(), timeZone);
 	const draft =
 		options.attachments !== undefined && options.attachments.length > 0
 			? {

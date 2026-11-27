@@ -484,6 +484,22 @@ describeBackends("session search", (backend) => {
 			).toBe("one\ntwo");
 		});
 
+		it("stores a message that carries a NUL byte, with the byte replaced in the search text", async () => {
+			// PostgreSQL text cannot hold U+0000, and the generated column decodes a message's JSON back to
+			// text: without the sanitizing function the insert fails, and a failed commit fails the durable
+			// Session (doc/design/data-model.md "Conversation content search").
+			const conversationId = durableId();
+			const user = durableId();
+			const assistant = durableId();
+			await storeEntries(conversationId, [
+				userRecord(user, conversationId, "before\u0000after"),
+				assistantRecord(assistant, conversationId, [{ type: "text", text: "one\u0000two" }]),
+			]);
+
+			expect(await searchTextOf(user)).toBe("before\uFFFDafter");
+			expect(await searchTextOf(assistant)).toBe("one\uFFFDtwo");
+		});
+
 		it("returns hits, snippets and counts across a session tree", async () => {
 			const owned = users.alice.userId;
 			const convA = durableId();

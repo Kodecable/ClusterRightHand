@@ -258,6 +258,11 @@ escaping would force the model to reconstruct the text and make edit matching er
 block in square brackets follows, with the node, the state and how to continue, so synthesized text is
 always distinguishable from output. In a task group each node has its own note and output blocks.
 
+A command's bytes are not always text a message can carry: a NUL byte and an unpaired UTF-16 surrogate
+are replaced with U+FFFD where a text result is built, before the result reaches the model or the store
+(util/text.ts). Neither can be stored by PostgreSQL, and one of them in a message fails the durable commit
+([Data model](data-model.md#conversation-content-search)).
+
 Lists and facts are returned as compact JSON.
 
 When output is truncated, the note gives the line range kept, the total, and the path of the complete
