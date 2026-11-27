@@ -1,7 +1,8 @@
-import type { ModelRef, RulePreset, UserSettings, UserSettingsUpdate } from "@crh/api";
+import type { RulePreset, UserSettings, UserSettingsUpdate } from "@crh/api";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
+import { parseStoredModelRef } from "../util/model-ref.ts";
 
 /**
  * One row per user of the user's own settings (doc/design/data-model.md "User settings"): the UI and
@@ -17,23 +18,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 	showProgress: true,
 	defaultChannelAccountId: null,
 };
-
-function parseStoredModel(raw: string | null): ModelRef | null {
-	if (!raw) return null;
-	try {
-		const value = JSON.parse(raw) as { provider?: unknown; modelId?: unknown; thinkingLevel?: unknown };
-		if (typeof value.provider !== "string" || typeof value.modelId !== "string") return null;
-		return {
-			provider: value.provider,
-			modelId: value.modelId,
-			...(typeof value.thinkingLevel === "string"
-				? { thinkingLevel: value.thinkingLevel as ModelRef["thinkingLevel"] }
-				: {}),
-		};
-	} catch {
-		return null;
-	}
-}
 
 function parseStoredRulePreset(raw: string | null): RulePreset | null {
 	if (!raw) return null;
@@ -53,7 +37,7 @@ export async function getUserSettings(db: Db, userId: string): Promise<UserSetti
 	if (!row) return { ...DEFAULT_USER_SETTINGS };
 	return {
 		locale: row.locale,
-		defaultModel: parseStoredModel(row.default_model),
+		defaultModel: parseStoredModelRef(row.default_model),
 		defaultRulePreset: parseStoredRulePreset(row.default_rule_preset),
 		showProgress: row.show_progress !== 0,
 		defaultChannelAccountId: row.default_channel_account_id,

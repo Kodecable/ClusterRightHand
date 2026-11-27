@@ -1,4 +1,5 @@
-import type { AvailableModel, ModelRef, RulePreset, ThinkingLevel, UserSettings } from "@crh/api";
+import type { ModelRef, RulePreset, ThinkingLevel } from "@crh/api";
+import { resolveNewSessionDefaults } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -24,41 +25,6 @@ const halfWindowHeight = (): number => Math.floor(window.innerHeight / 2);
 
 const sameModel = (a: ModelRef | undefined, b: ModelRef): boolean =>
 	a !== undefined && a.provider === b.provider && a.modelId === b.modelId;
-
-interface ResolvedDefaults {
-	model: ModelRef | undefined;
-	thinkingLevel: ThinkingLevel;
-}
-
-/**
- * A new session's defaults (doc/design/webui.md "New session"): the user's default model, then the session
- * model preset, then the first offered model. A default a provider no longer offers falls through to the next
- * step; the thinking level comes with the model it belonged to and is dropped when that model changed levels.
- */
-export function resolveNewSessionDefaults(
-	available: readonly AvailableModel[],
-	settings: UserSettings | null,
-	sessionModel: ModelRef | null,
-): ResolvedDefaults {
-	const offered = (candidate: ModelRef | null | undefined): AvailableModel | undefined =>
-		candidate === null || candidate === undefined
-			? undefined
-			: available.find((model) => model.provider === candidate.provider && model.modelId === candidate.modelId);
-	for (const candidate of [settings?.defaultModel, sessionModel]) {
-		const found = offered(candidate);
-		if (found === undefined || candidate === null || candidate === undefined) continue;
-		const level =
-			candidate.thinkingLevel !== undefined && found.thinkingLevels.includes(candidate.thinkingLevel)
-				? candidate.thinkingLevel
-				: "off";
-		return { model: { provider: found.provider, modelId: found.modelId }, thinkingLevel: level };
-	}
-	const first = available[0];
-	return {
-		model: first === undefined ? undefined : { provider: first.provider, modelId: first.modelId },
-		thinkingLevel: "off",
-	};
-}
 
 /**
  * The blank draft page (doc/design/webui.md "New session"): no transcript and no session yet, just the centred

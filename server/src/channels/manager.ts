@@ -6,13 +6,14 @@ import type {
 	ChannelStatus,
 	ChannelView,
 	ModelRef,
+	ResolvedNewSessionDefaults,
 	RulePreset,
 	ThinkingLevel,
 	UserSettings,
 	UserSettingsLocale,
 	UserSettingsUpdate,
 } from "@crh/api";
-import { quotaStatus } from "@crh/api";
+import { quotaStatus, resolveNewSessionDefaults } from "@crh/api";
 import type { ModelConfig } from "../agent/models.ts";
 import { decideQuota, type QuotaScheduler } from "../agent/quota-decision.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
@@ -287,40 +288,6 @@ function modelRefHash(model: ModelRef): string {
 /** A short digest of the session or draft a settings button was shown for, so a press after `/sessions` does nothing. */
 function targetTag(state: Extract<ChatTarget, { state: "draft" | "session" }>): string {
 	return listHash([state.state === "draft" ? `${state.thread.id}draft` : state.session.id]);
-}
-
-interface ResolvedDefaults {
-	model: ModelRef | undefined;
-	thinkingLevel: ThinkingLevel;
-}
-
-/**
- * A new session's defaults, the WebUI new-session page's resolution (doc/design/webui.md "New session"): the
- * user's default model, then the session model preset, then the first offered model. A default a provider no
- * longer offers falls through; the thinking level comes with that model and is dropped when the model changed
- * its levels.
- */
-function resolveNewSessionDefaults(
-	available: readonly AvailableModel[],
-	settings: UserSettings | null,
-	sessionModel: ModelRef | null,
-): ResolvedDefaults {
-	const offered = (candidate: ModelRef | null | undefined): AvailableModel | undefined =>
-		candidate === null || candidate === undefined ? undefined : available.find((model) => sameModel(model, candidate));
-	for (const candidate of [settings?.defaultModel, sessionModel]) {
-		const found = offered(candidate);
-		if (found === undefined || candidate === null || candidate === undefined) continue;
-		const level =
-			candidate.thinkingLevel !== undefined && found.thinkingLevels.includes(candidate.thinkingLevel)
-				? candidate.thinkingLevel
-				: "off";
-		return { model: { provider: found.provider, modelId: found.modelId }, thinkingLevel: level };
-	}
-	const first = available[0];
-	return {
-		model: first === undefined ? undefined : { provider: first.provider, modelId: first.modelId },
-		thinkingLevel: "off",
-	};
 }
 
 /** A chat thread with the session or draft its commands act on. */
@@ -1100,7 +1067,7 @@ export class ChannelManager {
 	}
 
 	/** A new session's settings from the user's defaults; the chat no longer has defaults of its own. */
-	async #sessionDefaults(user: SessionUser): Promise<ResolvedDefaults & { rulePreset: RulePreset }> {
+	async #sessionDefaults(user: SessionUser): Promise<ResolvedNewSessionDefaults & { rulePreset: RulePreset }> {
 		const settings = await getUserSettings(this.#options.db, user.userId);
 		const resolved = resolveNewSessionDefaults(
 			this.#options.models.available(),

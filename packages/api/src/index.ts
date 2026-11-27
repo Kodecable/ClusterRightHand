@@ -18,6 +18,7 @@ export * from "./lists.ts";
 export * from "./locales.ts";
 export * from "./metrics.ts";
 export * from "./models.ts";
+export * from "./new-session-defaults.ts";
 export * from "./nodes.ts";
 export * from "./policy.ts";
 export * from "./pty.ts";

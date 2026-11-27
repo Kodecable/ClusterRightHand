@@ -2,6 +2,7 @@ import type { ModelPreset } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { ModelPresetKind } from "../storage/schema.ts";
+import { parseStoredModelRef } from "../util/model-ref.ts";
 import { DEFAULT_SESSION_PROMPT, SESSION_TOOL_GUIDE } from "./extension.ts";
 import type { ModelRef } from "./models.ts";
 import { DEFAULT_REVIEW_PROMPT, REVIEW_PROTOCOL } from "./review.ts";
@@ -44,24 +45,6 @@ export function isModelPresetKind(value: string): value is ModelPresetKind {
 	return (MODEL_PRESET_KINDS as readonly string[]).includes(value);
 }
 
-/** Reads a stored JSON ref, ignoring a malformed one (the rows are only written by the API). */
-function parseRef(raw: string | null): ModelRef | null {
-	if (!raw) return null;
-	try {
-		const value = JSON.parse(raw) as { provider?: unknown; modelId?: unknown; thinkingLevel?: unknown };
-		if (typeof value.provider !== "string" || typeof value.modelId !== "string") return null;
-		return {
-			provider: value.provider,
-			modelId: value.modelId,
-			...(typeof value.thinkingLevel === "string"
-				? { thinkingLevel: value.thinkingLevel as ModelRef["thinkingLevel"] }
-				: {}),
-		};
-	} catch {
-		return null;
-	}
-}
-
 export class ModelPresets {
 	readonly #db: Db;
 	#orgId: string | null = null;
@@ -78,7 +61,7 @@ export class ModelPresets {
 		const cache = new Map<ModelPresetKind, StoredModelPreset>();
 		for (const row of rows) {
 			cache.set(row.kind, {
-				model: parseRef(row.model),
+				model: parseStoredModelRef(row.model),
 				systemPrompt: row.system_prompt,
 			});
 		}
