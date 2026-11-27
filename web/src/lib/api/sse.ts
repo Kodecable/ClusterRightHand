@@ -15,6 +15,13 @@ import { ApiError, notifyUnauthorized } from "./client";
  * (401), a session the viewer may not see (403) or a deleted one (404) is
  * terminal, while network errors and 5xx responses are retried.
  *
+ * A connection can also go quiet without ever firing an `error`: a sleeping
+ * laptop, a changed network or a NAT that dropped the flow leaves the socket
+ * half open, and the page would then keep the snapshot it had when the socket
+ * died. The server pings a quiet stream every 15 s, so a stream that stays
+ * silent for `idleTimeoutMs` is reopened, and so is one whose page became
+ * visible or whose network came back after that long.
+ *
  * The returned function ends the subscription for good; it is meant for a
  * `useEffect` cleanup.
  */
@@ -40,6 +47,13 @@ export interface SseOptions extends SseHandlers {
 	/** First reconnect delay; doubles per failed attempt. */
 	baseDelayMs?: number;
 	maxDelayMs?: number;
+	/**
+	 * The event a quiet stream carries as a heartbeat (the session routes send `ping`). It counts as activity
+	 * and is not passed to `onEvent` unless it is also listed in `events`.
+	 */
+	heartbeat?: string;
+	/** How long a stream may stay silent before it is treated as dead and reopened. */
+	idleTimeoutMs?: number;
 	/** Test seam: defaults to the global EventSource. */
 	eventSourceFactory?: (url: string) => EventSource;
 	/** Test seam: defaults to a `HEAD` request against the global fetch. */
@@ -48,6 +62,9 @@ export interface SseOptions extends SseHandlers {
 
 const DEFAULT_BASE_DELAY = 1_000;
 const DEFAULT_MAX_DELAY = 30_000;
+const DEFAULT_HEARTBEAT = "ping";
+/** Two missed heartbeats: a live stream pings every 15 s. */
+const DEFAULT_IDLE_TIMEOUT = 45_000;
 
 /** The HTTP status of a failed `EventSource`, when the event carries one (tests and future browsers). */
 function eventStatus(error: unknown): number | undefined {
@@ -85,6 +102,8 @@ export function subscribeSse({
 	onTerminal,
 	baseDelayMs = DEFAULT_BASE_DELAY,
 	maxDelayMs = DEFAULT_MAX_DELAY,
+	heartbeat = DEFAULT_HEARTBEAT,
+	idleTimeoutMs = DEFAULT_IDLE_TIMEOUT,
 	eventSourceFactory,
 	statusProbe = probeStatus,
 }: SseOptions): () => void {
@@ -96,17 +115,68 @@ export function subscribeSse({
 	let closed = false;
 	let attempts = 0;
 	let everOpened = false;
+	/** Whether the current connection opened: only an open stream can go quiet. */
+	let connected = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastEventAt = Date.now();
+
+	const stopIdleTimer = () => {
+		if (idleTimer !== null) {
+			clearTimeout(idleTimer);
+			idleTimer = null;
+		}
+	};
+
+	/** Reopen at once, without the backoff: the cause is a network change, not a failed attempt. */
+	const reopen = (reason: string) => {
+		if (closed) return;
+		stopIdleTimer();
+		if (timer !== null) {
+			clearTimeout(timer);
+			timer = null;
+		}
+		const current = source;
+		source = null;
+		connected = false;
+		current?.close();
+		attempts = 0;
+		// The new attempt starts the silence window afresh, so a second wake (the network and the page coming
+		// back together) does not open a third connection.
+		lastEventAt = Date.now();
+		onError?.(new Error(reason));
+		connect();
+	};
+
+	/** Restart the silence timer; an event from a live stream keeps resetting it. */
+	const armIdleTimer = () => {
+		stopIdleTimer();
+		idleTimer = setTimeout(() => {
+			idleTimer = null;
+			if (closed || source === null) return;
+			// Nothing marks a half-open connection: the page would keep the snapshot it had when the socket died,
+			// and reconnecting is what produces a fresh one (doc/design/webui.md "Data layer").
+			reopen("the event stream went quiet");
+		}, idleTimeoutMs);
+	};
+
+	const noteActivity = () => {
+		lastEventAt = Date.now();
+		if (connected) armIdleTimer();
+	};
 
 	const fail = async (error: unknown) => {
+		stopIdleTimer();
 		const status = eventStatus(error) ?? (await statusProbe(url));
 		if (closed) return;
 		if (status === 401) {
+			closed = true;
 			notifyUnauthorized();
 			onTerminal?.(new ApiError(status, "HTTP 401"));
 			return;
 		}
 		if (status === 403 || status === 404) {
+			closed = true;
 			onTerminal?.(new ApiError(status, `HTTP ${status}`));
 			return;
 		}
@@ -122,16 +192,23 @@ export function subscribeSse({
 			const reconnected = everOpened;
 			everOpened = true;
 			attempts = 0;
+			connected = true;
+			noteActivity();
 			onOpen?.(reconnected);
 		});
 		current.addEventListener("error", (error) => {
 			if (closed || source !== current) return;
+			connected = false;
 			current.close();
 			source = null;
 			void fail(error);
 		});
+		// The heartbeat is what tells a live quiet stream from a dead one. It is not forwarded unless the caller
+		// also asks for it in `events`.
+		current.addEventListener(heartbeat, noteActivity);
 		for (const name of events) {
 			current.addEventListener(name, (event) => {
+				noteActivity();
 				const payload = (event as MessageEvent).data;
 				if (typeof payload !== "string") return;
 				let data: unknown = payload;
@@ -157,15 +234,34 @@ export function subscribeSse({
 		}, delay);
 	};
 
+	/**
+	 * A hidden page can have its connection frozen by the browser. On the way back, a stream that has been
+	 * silent for a heartbeat interval or more is reopened rather than trusted, and a retry in flight runs now.
+	 */
+	const onVisibility = () => {
+		if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+		if (source === null || Date.now() - lastEventAt >= idleTimeoutMs) reopen("the page became visible again");
+	};
+	/** A network that came back must not wait out a backoff delay decided while it was gone. */
+	const onOnline = () => {
+		if (source === null) reopen("the network came back");
+	};
+
+	if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+	if (typeof window !== "undefined") window.addEventListener("online", onOnline);
+
 	connect();
 
 	return () => {
 		closed = true;
+		stopIdleTimer();
 		if (timer !== null) {
 			clearTimeout(timer);
 			timer = null;
 		}
 		source?.close();
 		source = null;
+		if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+		if (typeof window !== "undefined") window.removeEventListener("online", onOnline);
 	};
 }

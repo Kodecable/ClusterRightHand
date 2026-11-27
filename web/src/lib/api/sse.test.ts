@@ -33,6 +33,12 @@ async function flush(): Promise<void> {
 	await vi.advanceTimersByTimeAsync(0);
 }
 
+/** Every subscription opened by a test, ended before the next one so no listener or timer outlives it. */
+const disposers: (() => void)[] = [];
+
+/** The server's heartbeat interval, and the window the client tolerates without one. */
+const IDLE_TIMEOUT = 45_000;
+
 /** A subscription whose factory records every opened `EventSource`. */
 function setup(options: {
 	statusProbe?: () => Promise<number | undefined>;
@@ -41,24 +47,27 @@ function setup(options: {
 	onOpen?: (reconnected: boolean) => void;
 }) {
 	const sources: FakeEventSource[] = [];
-	subscribeSse({
-		url: "/api/x",
-		events: ["ping"],
-		onEvent: () => {},
-		baseDelayMs: 100,
-		maxDelayMs: 400,
-		eventSourceFactory: (url) => {
-			const source = new FakeEventSource(url);
-			sources.push(source);
-			return source as unknown as EventSource;
-		},
-		...options,
-	});
+	disposers.push(
+		subscribeSse({
+			url: "/api/x",
+			events: ["ping"],
+			onEvent: () => {},
+			baseDelayMs: 100,
+			maxDelayMs: 400,
+			eventSourceFactory: (url) => {
+				const source = new FakeEventSource(url);
+				sources.push(source);
+				return source as unknown as EventSource;
+			},
+			...options,
+		}),
+	);
 	return sources;
 }
 
 describe("subscribeSse", () => {
 	afterEach(() => {
+		for (const close of disposers.splice(0)) close();
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		setUnauthorizedHandler(null);
@@ -67,16 +76,18 @@ describe("subscribeSse", () => {
 	test("dispatches named events with parsed JSON and tolerates raw strings", () => {
 		const sources: FakeEventSource[] = [];
 		const received: [string, unknown][] = [];
-		subscribeSse({
-			url: "/api/sessions/stream",
-			events: ["upsert", "remove"],
-			onEvent: (event, data) => received.push([event, data]),
-			eventSourceFactory: (url) => {
-				const source = new FakeEventSource(url);
-				sources.push(source);
-				return source as unknown as EventSource;
-			},
-		});
+		disposers.push(
+			subscribeSse({
+				url: "/api/sessions/stream",
+				events: ["upsert", "remove"],
+				onEvent: (event, data) => received.push([event, data]),
+				eventSourceFactory: (url) => {
+					const source = new FakeEventSource(url);
+					sources.push(source);
+					return source as unknown as EventSource;
+				},
+			}),
+		);
 		sources[0]?.emit("upsert", '{"id":"s1"}');
 		sources[0]?.emit("remove", "not json");
 		expect(received).toEqual([
@@ -233,5 +244,58 @@ describe("subscribeSse", () => {
 		expect(sources[0]?.closed).toBe(true);
 		vi.advanceTimersByTime(10_000);
 		expect(sources).toHaveLength(1);
+	});
+
+	test("reopens a stream that went quiet without an error", () => {
+		vi.useFakeTimers();
+		const failed: unknown[] = [];
+		const sources = setup({ onError: (error) => failed.push(error) });
+		sources[0]?.emit("open", "");
+
+		vi.advanceTimersByTime(IDLE_TIMEOUT - 1);
+		expect(sources).toHaveLength(1);
+		vi.advanceTimersByTime(1);
+		expect(sources[0]?.closed).toBe(true);
+		expect(sources).toHaveLength(2);
+		expect(failed).toHaveLength(1);
+	});
+
+	test("keeps a quiet stream alive while its heartbeat arrives", () => {
+		vi.useFakeTimers();
+		const sources = setup({});
+		sources[0]?.emit("open", "");
+
+		// The server pings every 15 s; three pings across a minute are three quiet gaps, none too long.
+		for (let ping = 0; ping < 4; ping++) {
+			vi.advanceTimersByTime(15_000);
+			sources[0]?.emit("ping", "");
+		}
+		expect(sources).toHaveLength(1);
+	});
+
+	test("reopens a silent stream when the page becomes visible again", () => {
+		vi.useFakeTimers();
+		const sources = setup({});
+		sources[0]?.emit("open", "");
+
+		// A hidden page has its timers frozen, so the clock moves without the silence timer running: only the
+		// visibility change can notice that the stream is stale.
+		vi.setSystemTime(Date.now() + 2 * IDLE_TIMEOUT);
+		document.dispatchEvent(new Event("visibilitychange"));
+
+		expect(sources[0]?.closed).toBe(true);
+		expect(sources).toHaveLength(2);
+	});
+
+	test("reconnects at once when the network comes back during a retry", async () => {
+		vi.useFakeTimers();
+		const sources = setup({ statusProbe: async () => 503 });
+
+		sources[0]?.emit("error", "");
+		await flush();
+		expect(sources).toHaveLength(1);
+
+		window.dispatchEvent(new Event("online"));
+		expect(sources).toHaveLength(2);
 	});
 });

@@ -64,6 +64,13 @@ probes the endpoint to learn the HTTP status: 401 means the login session is gon
 the stream, anything else reconnects with exponential backoff. After a reconnect it refetches the
 affected list, so events missed during the gap are replaced by a fresh page.
 
+A connection can stop delivering without an error: a laptop that slept, a network that changed, or a
+NAT that forgot the flow leaves the socket half open, and `EventSource` never reports it. The server
+pings a quiet stream every 15 seconds, so a stream that stays silent for 45 seconds is reopened, and a
+page that becomes visible again or a network that comes back reconnects at once instead of trusting
+the stream or waiting out a backoff decided while it was gone. A terminal status closes the
+subscription for good, so no timer or listener survives it.
+
 ### Login captcha
 
 When the server requires a captcha, the login form solves a Cap proof of work
