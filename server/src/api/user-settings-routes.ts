@@ -4,7 +4,7 @@ import { type ModelConfig, parseModelRef } from "../agent/models.ts";
 import { userActor } from "../audit/audit.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { getUserSettings, patchUserSettings } from "../users/settings.ts";
+import { CHANNEL_ACCOUNT_NOT_LINKED, getUserSettings, patchUserSettingsWithBefore } from "../users/settings.ts";
 import { errorText, isForeignKeyViolation, UserError } from "../util/errors.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -80,30 +80,24 @@ export function userSettingsRoutes(db: Db, options: UserSettingsRoutesOptions = 
 		}
 
 		if (body.defaultChannelAccountId !== undefined) {
-			if (body.defaultChannelAccountId !== null) {
-				const account = await db
-					.selectFrom("channel_accounts")
-					.select("id")
-					.where("id", "=", body.defaultChannelAccountId)
-					.where("user_id", "=", user.userId)
-					.executeTakeFirst();
-				if (!account) throw new UserError("defaultChannelAccountId: no such linked chat account");
-			}
 			change.defaultChannelAccountId = body.defaultChannelAccountId;
 		}
 
-		const before = await getUserSettings(db, user.userId);
-		let after: UserSettings;
+		let patch: { before: UserSettings; after: UserSettings };
 		try {
-			after = await patchUserSettings(db, user.userId, change);
+			patch = await patchUserSettingsWithBefore(db, user.userId, change);
 		} catch (err) {
-			// The account check above and the write are separate statements: if the account is unlinked in
-			// between, the foreign key rejects the write and the caller gets the same refusal as a bad id.
+			// The service is the one place that checks ownership; map its refusal and a foreign-key race
+			// (the account was unlinked between that check and the write) to the route's field error.
+			if (err instanceof UserError && err.code === CHANNEL_ACCOUNT_NOT_LINKED) {
+				throw new UserError(`defaultChannelAccountId: ${err.message}`);
+			}
 			if (isForeignKeyViolation(err)) {
 				throw new UserError("defaultChannelAccountId: no such linked chat account");
 			}
 			throw err;
 		}
+		const { before, after } = patch;
 		const keys = Object.keys(change) as (keyof UserSettings)[];
 		const changed = keys.filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 		if (changed.length > 0) {

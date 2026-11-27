@@ -1,7 +1,7 @@
 import type { UserSettings } from "@crh/api";
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { sql } from "kysely";
+import { type KyselyPlugin, sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import type { AppEnv } from "../src/api/context.ts";
@@ -9,10 +9,11 @@ import { apiErrorHandler } from "../src/api/errors.ts";
 import { userSettingsRoutes } from "../src/api/user-settings-routes.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { unlinkAccount } from "../src/channels/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
-import { getUserSettings, patchUserSettings } from "../src/users/settings.ts";
+import { getUserSettings, patchUserSettings, patchUserSettingsWithBefore } from "../src/users/settings.ts";
 import { type App, call } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 
@@ -107,6 +108,33 @@ describe("user settings storage", () => {
 		});
 	});
 
+	it("keeps both fields of concurrent partial updates", async () => {
+		await Promise.all([
+			patchUserSettings(db, user.userId, { locale: "zh-CN" }),
+			patchUserSettings(db, user.userId, { showProgress: false }),
+		]);
+		expect(await getUserSettings(db, user.userId)).toEqual({
+			locale: "zh-CN",
+			defaultModel: null,
+			defaultRulePreset: null,
+			showProgress: false,
+			defaultChannelAccountId: null,
+		});
+	});
+
+	it("gives concurrent same-field writes their own before and after values", async () => {
+		const [first, second] = await Promise.all([
+			patchUserSettingsWithBefore(db, user.userId, { locale: "en" }),
+			patchUserSettingsWithBefore(db, user.userId, { locale: "zh-CN" }),
+		]);
+		const firstInOrder = first.before.locale === null ? first : second;
+		const secondInOrder = firstInOrder === first ? second : first;
+		expect(firstInOrder.before.locale).toBeNull();
+		expect(secondInOrder.before.locale).toBe(firstInOrder.after.locale);
+		expect(new Set([first.after.locale, second.after.locale])).toEqual(new Set(["en", "zh-CN"]));
+		expect((await getUserSettings(db, user.userId)).locale).toBe(secondInOrder.after.locale);
+	});
+
 	it("refuses a default notification account that is not the user's", async () => {
 		const other = await linkedAccount(otherUserId, "account-other");
 		await expect(patchUserSettings(db, user.userId, { defaultChannelAccountId: other })).rejects.toThrow(
@@ -198,6 +226,26 @@ describe("GET/PATCH /api/me/settings", () => {
 		);
 	});
 
+	it("audits concurrent same-field writes with the value each one replaced", async () => {
+		const responses = await Promise.all([patch({ locale: "en" }), patch({ locale: "zh-CN" })]);
+		expect(responses.map((response) => response.status)).toEqual([200, 200]);
+		await audit.flush();
+		const events = await db
+			.selectFrom("audit_events")
+			.select("detail")
+			.where("action", "=", "user_settings.changed")
+			.execute();
+		expect(events).toHaveLength(2);
+		const details = events.map(
+			(event) => JSON.parse(event.detail) as { old: { locale: string | null }; new: { locale: string | null } },
+		);
+		const first = details.find((detail) => detail.old.locale === null);
+		const second = details.find((detail) => detail !== first);
+		if (!first || !second) throw new Error("missing audit event");
+		expect(new Set([first.new.locale, second.new.locale])).toEqual(new Set(["en", "zh-CN"]));
+		expect(second.old.locale).toBe(first.new.locale);
+	});
+
 	it("audits the changed fields without recording a no-op", async () => {
 		await patch({ locale: "zh-CN" });
 		await audit.flush();
@@ -220,5 +268,109 @@ describe("GET/PATCH /api/me/settings", () => {
 		expect(
 			await db.selectFrom("audit_events").select("id").where("action", "=", "user_settings.changed").execute(),
 		).toHaveLength(1);
+	});
+});
+
+describe.skipIf(!process.env.CRH_TEST_PG_URL)("user settings locking (PostgreSQL)", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("postgres");
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("serializes concurrent same-field writes so each before is the value it replaced", async () => {
+		const [first, second] = await Promise.all([
+			patchUserSettingsWithBefore(db, "settings-lock", { locale: "en" }),
+			patchUserSettingsWithBefore(db, "settings-lock", { locale: "zh-CN" }),
+		]);
+		const firstInOrder = first.before.locale === null ? first : second;
+		const secondInOrder = firstInOrder === first ? second : first;
+		expect(firstInOrder.before.locale).toBeNull();
+		expect(secondInOrder.before.locale).toBe(firstInOrder.after.locale);
+		expect(new Set([first.after.locale, second.after.locale])).toEqual(new Set(["en", "zh-CN"]));
+	});
+
+	it("waits for an account unlink that clears the default before writing the next value", async () => {
+		const userId = "settings-unlink";
+		const accountA = "account-a";
+		const accountB = "account-b";
+		const linkedAt = new Date().toISOString();
+		await db
+			.insertInto("channel_accounts")
+			.values([
+				{
+					id: accountA,
+					channel_id: "channel-a",
+					platform: "telegram",
+					platform_user_id: "a",
+					platform_chat_id: "a",
+					user_id: userId,
+					display_name: null,
+					language_code: null,
+					linked_at: linkedAt,
+				},
+				{
+					id: accountB,
+					channel_id: "channel-a",
+					platform: "telegram",
+					platform_user_id: "b",
+					platform_chat_id: "b",
+					user_id: userId,
+					display_name: null,
+					language_code: null,
+					linked_at: linkedAt,
+				},
+			])
+			.execute();
+		await patchUserSettingsWithBefore(db, userId, { defaultChannelAccountId: accountA });
+
+		let armed = true;
+		let pausedResolve!: () => void;
+		const paused = new Promise<void>((resolve) => {
+			pausedResolve = resolve;
+		});
+		let releaseResolve!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			releaseResolve = resolve;
+		});
+		const plugin: KyselyPlugin = {
+			transformQuery(args) {
+				return args.node;
+			},
+			async transformResult(args) {
+				const rows = args.result.rows as { locale?: unknown }[];
+				if (armed && rows.some((row) => row !== null && typeof row === "object" && "locale" in row)) {
+					armed = false;
+					pausedResolve();
+					await gate;
+				}
+				return args.result;
+			},
+		};
+		const patch = patchUserSettingsWithBefore(db.withPlugin(plugin), userId, {
+			defaultChannelAccountId: accountB,
+		});
+		await paused;
+
+		let unlinkSettled = false;
+		const unlink = unlinkAccount(db, userId, accountA).finally(() => {
+			unlinkSettled = true;
+		});
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(unlinkSettled).toBe(false);
+		} finally {
+			releaseResolve();
+		}
+		const result = await patch;
+		await unlink;
+		expect(result.before.defaultChannelAccountId).toBe(accountA);
+		expect(result.after.defaultChannelAccountId).toBe(accountB);
+		// The FK update waited, then saw a default that no longer referenced A, so it did not clear B.
+		expect((await getUserSettings(db, userId)).defaultChannelAccountId).toBe(accountB);
 	});
 });

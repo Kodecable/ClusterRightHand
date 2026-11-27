@@ -55,7 +55,7 @@ import type { SettingsStore } from "../settings/settings.ts";
 import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import type { TerminalService } from "../terminals/registry.ts";
-import { getUserSettings, patchUserSettings } from "../users/settings.ts";
+import { getUserSettings, patchUserSettingsWithBefore } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
@@ -2116,8 +2116,7 @@ export class ChannelManager {
 		adapter: ChannelAdapter,
 		thread: ChannelThreadRow,
 	): Promise<void> {
-		const before = await getUserSettings(this.#options.db, user.userId);
-		const after = await patchUserSettings(this.#options.db, user.userId, change);
+		const { before, after } = await patchUserSettingsWithBefore(this.#options.db, user.userId, change);
 		const keys = Object.keys(change) as (keyof UserSettings)[];
 		const changed = keys.filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 		if (changed.length === 0) return;
