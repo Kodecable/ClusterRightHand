@@ -17,6 +17,7 @@ import {
 	RemoteError,
 	type TrustEntry,
 } from "@crh/protocol";
+import type { KyselyPlugin } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { Audit } from "../src/audit/audit.ts";
@@ -68,6 +69,57 @@ class FakeViewerSocket {
 
 function userOf(row: { id: string; username: string }, kind: "member" | "admin" = "member") {
 	return { userId: row.id, username: row.username, kind, sessionId: `session:${row.id}` };
+}
+
+/**
+ * Holds the attachment's WebUI-session lookup after its query has read the old role/session. The rest of the
+ * app keeps using the unwrapped database, so a revocation can commit while the handshake is paused.
+ */
+function tableName(table: unknown): string | undefined {
+	if (typeof table !== "object" || table === null) return undefined;
+	const node = table as { identifier?: { name?: string }; table?: unknown; node?: unknown };
+	return node.identifier?.name ?? tableName(node.table) ?? tableName(node.node);
+}
+
+function pausableAttachDb(db: Db) {
+	let armed = false;
+	let enteredResolve: (() => void) | undefined;
+	let releaseResolve: (() => void) | undefined;
+	let entered = Promise.resolve();
+	let release = Promise.resolve();
+	const queryIds = new Set<unknown>();
+	const plugin: KyselyPlugin = {
+		transformQuery(args) {
+			const node = args.node as {
+				kind?: string;
+				from?: { froms?: { table?: unknown }[] };
+			};
+			const table = tableName(node.from?.froms?.[0]);
+			if (armed && node.kind === "SelectQueryNode" && table === "web_sessions") queryIds.add(args.queryId);
+			return args.node;
+		},
+		async transformResult(args) {
+			if (!armed || !queryIds.delete(args.queryId)) return args.result;
+			armed = false;
+			enteredResolve?.();
+			await release;
+			return args.result;
+		},
+	};
+	return {
+		db: db.withPlugin(plugin),
+		pauseNextLookup() {
+			armed = true;
+			entered = new Promise<void>((resolve) => {
+				enteredResolve = resolve;
+			});
+			release = new Promise<void>((resolve) => {
+				releaseResolve = resolve;
+			});
+		},
+		entered: () => entered,
+		release: () => releaseResolve?.(),
+	};
 }
 
 describe("terminals", () => {
@@ -871,12 +923,21 @@ describe("terminals", () => {
 		let app: App;
 		let server: Server;
 		let attach: TerminalAttachServer;
+		let attachDb: ReturnType<typeof pausableAttachDb>;
 		let base: string;
 
 		beforeEach(async () => {
-			app = makeApp(db, undefined, { cluster, terminals, settings, serverFingerprint: "test-server" });
-			attach = new TerminalAttachServer(db, terminals, {
+			attachDb = pausableAttachDb(db);
+			attach = new TerminalAttachServer(attachDb.db, terminals, {
 				realIpHeader: () => settings.current().realIpHeader,
+				sessionSweepMs: 25,
+			});
+			app = makeApp(db, undefined, {
+				cluster,
+				terminals,
+				settings,
+				serverFingerprint: "test-server",
+				terminalAttachments: attach,
 			});
 			server = createServer((req, res) => {
 				void (async () => {
@@ -992,6 +1053,20 @@ describe("terminals", () => {
 				return views.find((entry) => entry.creatingSessionId === session.id && entry.authorizationPhase === "waiting");
 			});
 			return { session, opening, waiting };
+		};
+
+		/** Opens a browser attachment and waits for the handshake; the caller waits for the snapshot. */
+		const attachWebSocket = async (terminalId: string, cookie: string, frames?: unknown[]): Promise<WebSocket> => {
+			const ws = new WebSocket(
+				`ws://127.0.0.1:${(server.address() as AddressInfo).port}/api/ptys/${terminalId}/attach`,
+				{ headers: { cookie, origin: base } },
+			);
+			if (frames) ws.on("message", (data, isBinary) => frames.push(isBinary ? data : data.toString()));
+			await new Promise<void>((resolve, reject) => {
+				ws.once("open", () => resolve());
+				ws.once("error", reject);
+			});
+			return ws;
 		};
 
 		it("lists and shows a terminal to its user and administrators, never to another member", async () => {
@@ -1333,6 +1408,237 @@ describe("terminals", () => {
 			ws.close();
 			connection.close();
 			void crha;
+		});
+
+		it("does not keep a viewer when the socket closes during the snapshot", async () => {
+			const { node, key } = await connect();
+			const terminal = await openPerson(node);
+			const connection = await agents.connectPty(key, terminal.id);
+			await waitFor("screen", () => terminals.get(terminal.id)?.screen !== null);
+			const screen = terminals.get(terminal.id)?.screen;
+			if (!screen) throw new Error("no screen");
+			let release: ((snapshot: string) => void) | undefined;
+			const pending = new Promise<string>((resolve) => {
+				release = resolve;
+			});
+			const snapshot = vi.spyOn(screen, "snapshot").mockReturnValue(pending);
+			try {
+				const cookie = await login(app, "owner", "password-123");
+				const ws = await attachWebSocket(terminal.id, cookie);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				ws.close();
+				await waitFor("client closed", () => ws.readyState === WebSocket.CLOSED);
+				release?.("");
+				await waitFor("no viewer", async () => (await terminals.view(terminal)).viewers.length === 0);
+			} finally {
+				snapshot.mockRestore();
+				connection.close();
+			}
+		});
+
+		it("closes an attachment when its WebUI session is revoked by logout", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const cookie = await login(app, "owner", "password-123");
+			const ws = await attachWebSocket(terminal.id, cookie);
+			await waitFor("viewer attached", async () => (await terminals.view(terminal)).viewers.length === 1);
+
+			const out = await call(app, "/api/auth/logout", { method: "POST", cookie, body: {} });
+			expect(out.status).toBe(200);
+			await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+			await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
+		});
+
+		it("closes an administrator's attachment when a role change removes its visibility", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			await createUser(db, {
+				username: "demoter",
+				kind: "admin",
+				password: "demoter-password",
+			});
+			const adminCookie = await login(app, "root", "root-password");
+			const demoterCookie = await login(app, "demoter", "demoter-password");
+			const ws = await attachWebSocket(terminal.id, adminCookie);
+			await waitFor("viewer attached", async () => (await terminals.view(terminal)).viewers.length === 1);
+
+			const out = await call(app, `/api/users/${admin.id}`, {
+				method: "PATCH",
+				cookie: demoterCookie,
+				body: { kind: "member" },
+			});
+			expect(out.status).toBe(200);
+			await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+			await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
+		});
+
+		it("answers a missing terminal and one the caller cannot see the same way", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const otherCookie = await login(app, "other", "password-456");
+			const closeInfo = (id: string) =>
+				new Promise<{ code: number; reason: string }>((resolve, reject) => {
+					const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/api/ptys/${id}/attach`, {
+						headers: { cookie: otherCookie, origin: base },
+					});
+					ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+					ws.on("error", reject);
+				});
+			const [hidden, missing] = await Promise.all([closeInfo(terminal.id), closeInfo(newId())]);
+			expect(hidden).toEqual({ code: 1008, reason: "no such terminal" });
+			expect(missing).toEqual(hidden);
+		});
+
+		it("closes the socket and logs an attachment failure", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const cookie = await login(app, "owner", "password-123");
+			const failure = vi.spyOn(terminals, "attachViewer").mockRejectedValue(new Error("snapshot failed"));
+			const log = vi.spyOn(console, "error").mockImplementation(() => {});
+			try {
+				const ws = await attachWebSocket(terminal.id, cookie);
+				await waitFor("socket closed", () => ws.readyState === WebSocket.CLOSED);
+				expect(log.mock.calls.some(([message]) => message === "terminal attach failed:")).toBe(true);
+				expect((await terminals.view(terminal)).viewers).toEqual([]);
+			} finally {
+				failure.mockRestore();
+				log.mockRestore();
+			}
+		});
+
+		it("closes an administrator's attachment when a role change lands during the handshake", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const watcher = await createUser(db, {
+				username: "watcher",
+				kind: "admin",
+				password: "watcher-password",
+			});
+			const watcherCookie = await login(app, "watcher", "watcher-password");
+			const rootCookie = await login(app, "root", "root-password");
+			const frames: unknown[] = [];
+			attachDb.pauseNextLookup();
+			const ws = await attachWebSocket(terminal.id, watcherCookie, frames);
+			await attachDb.entered();
+
+			const out = await call(app, `/api/users/${watcher.id}`, {
+				method: "PATCH",
+				cookie: rootCookie,
+				body: { kind: "member" },
+			});
+			expect(out.status).toBe(200);
+			attachDb.release();
+
+			await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+			expect(frames.some((frame) => typeof frame === "string" && frame.includes('"snapshot"'))).toBe(false);
+			await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
+		});
+
+		it("does not send a snapshot to an attachment revoked while it is serialized", async () => {
+			const { node, key } = await connect();
+			const terminal = await openPerson(node);
+			const connection = await agents.connectPty(key, terminal.id);
+			await waitFor("screen", () => terminals.get(terminal.id)?.screen !== null);
+			const screen = terminals.get(terminal.id)?.screen;
+			if (!screen) throw new Error("no screen");
+			let release: ((snapshot: string) => void) | undefined;
+			const pending = new Promise<string>((resolve) => {
+				release = resolve;
+			});
+			const snapshot = vi.spyOn(screen, "snapshot").mockReturnValue(pending);
+			const frames: unknown[] = [];
+			try {
+				const cookie = await login(app, "owner", "password-123");
+				const ws = await attachWebSocket(terminal.id, cookie, frames);
+				await waitFor("snapshot requested", () => snapshot.mock.calls.length > 0);
+				const out = await call(app, "/api/auth/logout", { method: "POST", cookie, body: {} });
+				expect(out.status).toBe(200);
+				release?.("");
+				await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+				expect(frames.some((frame) => typeof frame === "string" && frame.includes('"snapshot"'))).toBe(false);
+				await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
+			} finally {
+				snapshot.mockRestore();
+				connection.close();
+			}
+		});
+
+		it("stops accepting input as soon as an attachment is revoked", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const cookie = await login(app, "owner", "password-123");
+			const ws = await attachWebSocket(terminal.id, cookie);
+			await waitFor("viewer attached", async () => (await terminals.view(terminal)).viewers.length === 1);
+			const write = vi.spyOn(terminals, "write");
+
+			const originalSend = WebSocket.prototype.send;
+			let heldSend: (() => void) | undefined;
+			let heldResolve!: () => void;
+			const held = new Promise<void>((resolve) => {
+				heldResolve = resolve;
+			});
+			const send = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (
+				this: WebSocket,
+				data: Parameters<WebSocket["send"]>[0],
+				...rest: [Parameters<WebSocket["send"]>[1]?, ((err?: Error) => void)?]
+			) {
+				if (this !== ws && heldSend === undefined && typeof data === "string" && data.includes('"closed"')) {
+					heldSend = () => {
+						(originalSend as (...args: unknown[]) => void).call(this, data, ...rest);
+					};
+					heldResolve();
+					return;
+				}
+				return (originalSend as (...args: unknown[]) => void).call(this, data, ...rest);
+			} as unknown as typeof WebSocket.prototype.send);
+
+			try {
+				const out = await call(app, "/api/auth/logout", { method: "POST", cookie, body: {} });
+				expect(out.status).toBe(200);
+				await held;
+				expect(ws.readyState).toBe(WebSocket.OPEN);
+				ws.send(Buffer.from("x"));
+				await new Promise((resolve) => setTimeout(resolve, 100));
+				expect(write.mock.calls.some(([, bytes]) => Buffer.from(bytes).toString() === "x")).toBe(false);
+			} finally {
+				send.mockRestore();
+				heldSend?.();
+				ws.close();
+			}
+		});
+
+		it("closes an attachment when an administrator resets its session's password", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const ownerCookie = await login(app, "owner", "password-123");
+			const adminCookie = await login(app, "root", "root-password");
+			const ws = await attachWebSocket(terminal.id, ownerCookie);
+			await waitFor("viewer attached", async () => (await terminals.view(terminal)).viewers.length === 1);
+
+			const out = await call(app, `/api/users/${owner.id}/password`, {
+				method: "POST",
+				cookie: adminCookie,
+				body: { password: "owner-new-password" },
+			});
+			expect(out.status).toBe(200);
+			await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+			await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
+		});
+
+		it("closes an attachment when its WebUI session expires", async () => {
+			const { node } = await connect();
+			const terminal = await openPerson(node);
+			const cookie = await login(app, "owner", "password-123");
+			const ws = await attachWebSocket(terminal.id, cookie);
+			await waitFor("viewer attached", async () => (await terminals.view(terminal)).viewers.length === 1);
+
+			await db
+				.updateTable("web_sessions")
+				.set({ expires_at: new Date(0).toISOString() })
+				.where("user_id", "=", owner.id)
+				.execute();
+			await waitFor("attachment closed", () => ws.readyState === WebSocket.CLOSED);
+			await waitFor("viewer detached", async () => (await terminals.view(terminal)).viewers.length === 0);
 		});
 
 		it("accepts a proxied HTTPS origin against host:443 and refuses a cross-origin attach", async () => {

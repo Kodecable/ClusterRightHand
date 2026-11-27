@@ -263,7 +263,10 @@ its node; a dropped connection between two running processes loses nothing.
   can type; input from all of them is written in arrival order. Every viewer forwards only its user's
   input: xterm.js's automatic replies to terminal queries are never sent back, so several viewers never
   answer one query several times. A viewer that cannot keep up with the output past a buffer limit is
-  disconnected with a reason and can attach again.
+  disconnected with a reason and can attach again. An attachment belongs to the WebUI session that opened
+  it: logout, a password change or reset, session expiry, disabling the user, or a role change that
+  removes visibility closes the attachment (the terminal process itself keeps its own lifecycle). The
+  page shows the reason and does not retry; signing in again allows a new attachment.
 - **Size.** A terminal has one size. It changes only when a viewer or an agent resizes it explicitly;
   attaching or resizing a browser window does not. A resize is sent to crha and broadcast to every
   viewer, whose terminal adopts the new rows and columns. The viewer does not change the grid to fit

@@ -374,6 +374,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		audit,
 		agent: { runtime, models },
 		terminals,
+		terminalAttachments: ptyAttach,
 		modelCatalogue,
 		crhaReleases,
 		scheduler,

@@ -55,8 +55,8 @@ Not protected against:
   (10 failures in 15 minutes). By default each login also solves an invisible proof-of-work captcha
   bound to the address, username and password. Set `captcha = "none"` only where no browser is used.
 - **WebUI sessions** last seven days in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` except on
-  localhost. A password change signs out the user's other sessions; it revokes API tokens only if you
-  choose to.
+  localhost. A password change signs out the user's other sessions and closes their terminal
+  attachments; it revokes API tokens only if you choose to.
 - **API tokens** are bearer credentials for MCP. They act for their owner within their own rules (Ask
   or Yolo). Give each token an expiry, prefer Ask, and revoke it when its client is retired.
 - **Passkeys and SSH keys** are not login methods. They sign authorizations for privileged tasks.

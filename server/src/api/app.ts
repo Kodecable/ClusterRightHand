@@ -27,6 +27,7 @@ import type { MetricsStore } from "../metrics/store.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import type { TerminalAttachments } from "../terminals/attach.ts";
 import type { TerminalService } from "../terminals/registry.ts";
 import { execJobRenderers } from "../tools/job-renderers.ts";
 import { DEFAULT_BODY_LIMIT, jsonBodyLimit, takesLargeBody } from "../util/body-limit.ts";
@@ -164,6 +165,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	scheduler?: Scheduler;
 	/** The terminal subsystem behind the Terminals page and the agent tools (doc/design/pty.md). */
 	terminals?: TerminalService;
+	/** The browser attachments of that subsystem; revocation and role changes end them too. */
+	terminalAttachments?: TerminalAttachments;
 	/** The host metrics store behind the node metrics API (doc/design/metrics.md). */
 	metricsStore?: MetricsStore;
 	/** Alias of `metricsStore` for callers that already name the store `metrics`, as `main.ts` does. */
@@ -216,8 +219,11 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	 * Filled in with the SSE routes below, which are built after the auth routes: logout and a password change
 	 * end the affected streams immediately, and the streams' own ping check is only the fallback.
 	 */
-	let revalidateWebSessions: ((userId: string) => Promise<void>) | undefined;
-	const onWebSessionsRevoked = (userId: string): Promise<void> | void => revalidateWebSessions?.(userId);
+	let revalidateStreams: ((userId: string) => Promise<void>) | undefined;
+	const onWebSessionsRevoked = async (userId: string): Promise<void> => {
+		await options.terminalAttachments?.revalidateWebSessions(userId);
+		await revalidateStreams?.(userId);
+	};
 
 	// One error handler for every route (see errors.ts), so each route group keeps only its own routes.
 	app.onError(apiErrorHandler());
@@ -290,6 +296,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			...(taskGroups ? { taskGroups } : {}),
 			...(options.channels ? { channels: options.channels } : {}),
 			...(options.terminals ? { terminals: options.terminals } : {}),
+			...(options.terminalAttachments ? { terminalAttachments: options.terminalAttachments } : {}),
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
@@ -368,7 +375,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			);
 			sessions.route("/", modelPresetRoutes({ runtime, models }));
 			const streams = new SessionStreams(db, runtime, drain);
-			revalidateWebSessions = async (userId) => {
+			revalidateStreams = async (userId) => {
 				await streams.revalidateWebSessions(userId);
 				await runtime.sessionList.revalidateWebSessions(userId);
 			};

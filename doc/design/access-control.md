@@ -47,9 +47,9 @@ Accounts that a caller may not see answer 404 like missing ones, so members cann
 Any user can search the directory of users and user groups to share with; it returns names only.
 
 An administrator cannot demote or disable themselves, and crhs refuses any change that would leave no
-active administrator. Disabling a user ends their WebUI sessions, invalidates their API tokens, cancels
-the tasks and task groups they left waiting for an approval or a signature, and disables their scheduled
-tasks.
+active administrator. Disabling a user ends their WebUI sessions and terminal attachments, invalidates
+their API tokens, cancels the tasks and task groups they left waiting for an approval or a signature,
+and disables their scheduled tasks.
 
 ## Node groups and names
 

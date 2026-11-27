@@ -27,6 +27,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import type { TerminalAttachments } from "../terminals/attach.ts";
 import type { TerminalService } from "../terminals/registry.ts";
 import {
 	createUser,
@@ -251,6 +252,8 @@ export interface UserRoutesOptions {
 	channels?: ChannelManager;
 	/** The terminal subsystem: a disabled user's terminals close with `user_removed` (doc/design/pty.md). */
 	terminals?: TerminalService;
+	/** The terminal attachments: disable and a role change end the ones that lost access. */
+	terminalAttachments?: TerminalAttachments;
 }
 
 /** Expects requireUser to have run. */
@@ -339,6 +342,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			// A disabled user's terminals close with `user_removed` (doc/design/pty.md "Lifecycle").
 			options.terminals?.userRemoved(id);
 			await revokeUserWebSessions(db, id);
+			await options.terminalAttachments?.revalidateVisibility(id);
 			// A disabled user's streams end; their next request is a 401 and the client goes to login.
 			options.sessions?.endUserStreams(id);
 			// Including the per-session event streams, which outlive this request.
@@ -359,6 +363,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		if (body.kind !== undefined) {
 			options.sessions?.endUserStreams(id);
 			await options.sessions?.publishVisibilityChanged();
+			await options.terminalAttachments?.revalidateVisibility(id);
 		}
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),

@@ -1052,7 +1052,10 @@ export class TerminalService implements TerminalSink {
 		user: SessionUser,
 		socket: WebSocket,
 		clientAddress: string | null,
+		options: { cancelled?: () => boolean } = {},
 	): Promise<Viewer> {
+		const cancelled = options.cancelled ?? (() => false);
+		if (cancelled()) throw new TerminalError("closed", "the attachment was revoked");
 		const viewer: Viewer = {
 			id: newId(),
 			userId: user.userId,
@@ -1066,6 +1069,12 @@ export class TerminalService implements TerminalSink {
 		// The snapshot is taken before the viewer joins, so no output can be missed or repeated: the
 		// parser writes queued bytes before serializing, and the viewer is added in the same turn.
 		const snapshot = terminal.screen ? await terminal.screen.snapshot() : "";
+		// The socket may have closed, the attachment may have been revoked, or the terminal may have
+		// closed while the snapshot was serialized. Refuse all three before the viewer joins, so a
+		// revoked client receives neither the snapshot nor a stale viewer record.
+		if (cancelled()) throw new TerminalError("closed", "the attachment was revoked");
+		if (socket.readyState !== 1) throw new TerminalError("closed", "the viewer disconnected");
+		if (terminal.closing) throw new TerminalError("closed", "the terminal closed");
 		viewer.ready = true;
 		terminal.viewers.set(viewer.id, viewer);
 		this.#sendJson(socket, { type: "snapshot", data: snapshot, rows: terminal.rows, cols: terminal.cols });
