@@ -922,6 +922,11 @@ export async function watch(
 	await onEvents([await snapshotEvent(host, conversation, stream.snapshot)]);
 	// The client may have gone while the snapshot was being sent; starting the watch then would throw.
 	if (signal?.aborted) return () => stream.stop();
+	// A stop the runtime performs itself (a parked task) cannot reach the client through a commit: it is a
+	// memory-only event on this stream, like the Harness's own failure events.
+	const unsubscribe = host.signals.subscribe(sessionId, (event) => {
+		void Promise.resolve(onEvents([event])).catch(() => {});
+	});
 	stream.start(async (events) => {
 		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows. The
 		// snapshot path filters them out; the live path must not reintroduce them through message_end.
@@ -931,7 +936,10 @@ export async function watch(
 			.filter((event): event is SessionEvent => event !== null);
 		if (converted.length > 0) await onEvents(converted);
 	});
-	return () => stream.stop();
+	return () => {
+		unsubscribe();
+		stream.stop();
+	};
 }
 
 /**

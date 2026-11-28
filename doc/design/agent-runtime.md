@@ -497,6 +497,14 @@ Every session has a stored run state, so lists can filter and sort in SQL withou
   a wait held by a live job is not one of them, because the background work it belongs to still needs it.
   Tasks that belong to no session are not affected; their signature waits expire after 24 hours
   ([Waiting for signatures](privilege.md#waiting-for-signatures)).
+- **A task the Harness gives up on.** A crash, or a write that keeps failing, cuts off a running task; after
+  `restartLimit` restarts pi-durable parks it, and a parked task never runs again. crhs reads that report and
+  stops the run of the session whose conversation owns the task, so the owner sees an ended run and can send
+  the message again, instead of a session that looks busy until someone presses Stop. The stop also puts a
+  `task_failed` event on the session's stream, which the WebUI shows as its error banner: a stop the runtime
+  performs itself cannot reach the client through a commit, so it travels as a memory-only signal
+  (runtime-host/session-signals.ts). The report is logged too; a run whose tool call waits on parked work
+  would otherwise wait for ever.
 
 ### Foreground and background
 

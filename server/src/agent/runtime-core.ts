@@ -35,6 +35,7 @@ import type { NoticeActivity } from "./runtime-host/notice-activity.ts";
 import type { QuotaWaits } from "./runtime-host/quota-waits.ts";
 import type { SessionCaches } from "./runtime-host/session-caches.ts";
 import type { SessionFlags } from "./runtime-host/session-flags.ts";
+import type { SessionSignals } from "./runtime-host/session-signals.ts";
 import type { StateRefreshes } from "./runtime-host/state-refreshes.ts";
 import type { SessionListHub } from "./session-list-hub.ts";
 
@@ -199,6 +200,8 @@ export interface RuntimeHost {
 	readonly sessionFlags: SessionFlags;
 	/** The in-flight generation attempts, by provider session id (doc/design/agent-runtime.md "Session statistics"). */
 	readonly generationTimings: GenerationTimings;
+	/** Events a stop puts on a session's stream, which no commit can carry (runtime-host/session-signals.ts). */
+	readonly signals: SessionSignals;
 	/** Called after a session's run state changes, for hosts that follow waits (chat channels). */
 	stateChanged?: (sessionId: string) => void;
 	/**

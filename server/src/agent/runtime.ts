@@ -5,6 +5,8 @@ import {
 	type Extension,
 	Harness,
 	type Registry,
+	type ReportInfo,
+	type ReportTask,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -33,6 +35,7 @@ import { NoticeActivity } from "./runtime-host/notice-activity.ts";
 import { QuotaWaits } from "./runtime-host/quota-waits.ts";
 import { SessionCaches } from "./runtime-host/session-caches.ts";
 import { SessionFlags } from "./runtime-host/session-flags.ts";
+import { SessionSignals } from "./runtime-host/session-signals.ts";
 import { StateRefreshes } from "./runtime-host/state-refreshes.ts";
 import { chargeCompaction, decideRootQuota, rememberProviderSession, waitForQuota } from "./runtime-quota.ts";
 import { decideAgentRequest, pendingAgentRequests, routeAwaiting } from "./runtime-requests.ts";
@@ -166,6 +169,7 @@ export class AgentRuntime {
 			noticeActivity: new NoticeActivity(),
 			sessionFlags: new SessionFlags(),
 			generationTimings: new GenerationTimings(),
+			signals: new SessionSignals(),
 			extensionsFor: (serverNames) => this.#extensionsFor(serverNames),
 		};
 		// The extension is built before the runtime and the Harness's metered Models resolve the map per request;
@@ -187,6 +191,8 @@ export class AgentRuntime {
 		presets: ModelPresets,
 		registry: Registry<ToolRegistration>,
 		extensions: Map<string, Extension>,
+		/** Filled with the failures the Harness reports while it opens: the runtime cannot handle them yet. */
+		reports: ReportInfo[],
 	): Promise<Harness> {
 		const crh = clusterExtension(options, ref, presets);
 		registry.install(crh);
@@ -209,6 +215,7 @@ export class AgentRuntime {
 						ref.current?.compactionStreamId(providerSessionId) ?? streamSessionId(providerSessionId, "compaction"),
 				),
 				registry,
+				onReport: (_error, info) => reports.push(info),
 				identity: CLIENT_IDENTITY,
 				settings: {
 					// pi's coding-agent defaults (doc/design/agent-runtime.md "Defaults").
@@ -248,8 +255,9 @@ export class AgentRuntime {
 		await presets.load();
 		const registry = createRegistry();
 		const extensions = new Map<string, Extension>();
+		const reports: ReportInfo[] = [];
 		const runtime = new AgentRuntime(
-			await AgentRuntime.#openHarness(options, ref, presets, registry, extensions),
+			await AgentRuntime.#openHarness(options, ref, presets, registry, extensions, reports),
 			options,
 			presets,
 			registry,
@@ -388,7 +396,51 @@ export class AgentRuntime {
 		await wakePendingAgents(runtime.#host);
 		// Completion notices of jobs that settled while crhs was down reach their owners the same way.
 		await wakePendingJobNotices(runtime.#host);
+		// A task parked while the runtime opened has nobody to end its run yet; do it now (see #handleReports).
+		runtime.#handleReports(reports);
 		return runtime;
+	}
+
+	/**
+	 * What the Harness reported: its failures are non-fatal by design, but a task it parked will never run
+	 * again, and any run waiting for it would wait for ever with nothing to show (doc/design/agent-runtime.md
+	 * "Session state"). Such a run is stopped here, so the owner sees an ended run and can retry, instead of a
+	 * session that looks busy until someone presses Stop.
+	 */
+	#handleReports(reports: ReportInfo[]): void {
+		for (const report of reports) {
+			if (report.type === "task_parked") {
+				void this.#stopParkedTask(report.task).catch((err: unknown) => {
+					console.error("agent runtime: stopping the session of a parked task failed:", err);
+				});
+				continue;
+			}
+			console.error(`agent runtime: ${report.type}: ${JSON.stringify(report)}`);
+		}
+	}
+
+	/** Ends the run of the session whose conversation owns a task the Harness has given up on. */
+	async #stopParkedTask(task: ReportTask): Promise<void> {
+		const row = await this.#host.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("conversation_id", "=", String(task.conversationId))
+			.executeTakeFirst();
+		if (!row || this.#closing) return;
+		console.error(
+			`agent runtime: task ${task.id} (${task.kind}) was cut off too many times and is parked; ` +
+				`stopping session ${row.id}, whose run cannot finish`,
+		);
+		// The banner says what happened, so the stop does not look like a run that simply went idle.
+		this.#host.signals.publish(row.id, {
+			type: "task_failed",
+			taskId: Number(task.id),
+			kind: task.kind,
+			message:
+				"The agent runtime could not finish this run after restarting it several times, so the run was " +
+				"stopped. Send the message again to retry.",
+		});
+		await abort(this.#host, row.id, undefined, { source: "internal" });
 	}
 
 	/** Reopens a Harness that failed; commits are atomic, so the store is consistent and work resumes. */
@@ -398,6 +450,7 @@ export class AgentRuntime {
 			console.error("agent runtime: the Harness failed, reopening:", end.error);
 			for (let attempt = 0; !this.#closing; attempt++) {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
+				const reports: ReportInfo[] = [];
 				try {
 					this.#harness = await AgentRuntime.#openHarness(
 						this.#options,
@@ -405,6 +458,7 @@ export class AgentRuntime {
 						this.modelPresets,
 						this.#registry,
 						this.#extensions,
+						reports,
 					);
 					this.#harness.resume();
 					this.#host.inboxes.clear();
@@ -427,6 +481,7 @@ export class AgentRuntime {
 				} catch (err) {
 					console.error("agent runtime: reconciling after a reopen failed:", err);
 				}
+				this.#handleReports(reports);
 				return;
 			}
 		});

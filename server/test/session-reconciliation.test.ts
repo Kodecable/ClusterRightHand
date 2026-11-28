@@ -6,7 +6,7 @@ import type { Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { AgentRuntime } from "../src/agent/runtime.ts";
+import { AgentRuntime, type SessionEvent } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -192,7 +192,7 @@ describe("startup reconciliation", () => {
 	 * factory makes a fresh storage the way main.ts does, for the supervisor's reopen.
 	 */
 	const failingStorage = () => {
-		let failNext = false;
+		let failures = 0;
 		const factory = async (): Promise<Storage> => {
 			const real = await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 			return new Proxy(real, {
@@ -201,8 +201,8 @@ describe("startup reconciliation", () => {
 					if (typeof value !== "function") return value;
 					if (prop !== "commit") return value.bind(target);
 					return (...args: unknown[]) => {
-						if (failNext) {
-							failNext = false;
+						if (failures > 0) {
+							failures -= 1;
 							return Promise.reject(new Error("injected storage failure"));
 						}
 						return value.apply(target, args);
@@ -213,9 +213,36 @@ describe("startup reconciliation", () => {
 		return {
 			factory,
 			failOnce: () => {
-				failNext = true;
+				failures = 1;
+			},
+			/** The next commits fail, as a write that keeps failing does: the Harness reopens over and over. */
+			failTimes: (count: number) => {
+				failures = count;
 			},
 		};
+	};
+
+	/**
+	 * The storage of the incident: a commit whose JSON carries a NUL byte fails, as PostgreSQL does, every time
+	 * it is attempted. A resumed run that keeps writing the same text therefore fails every reopen.
+	 */
+	const poisonedStorage = () => {
+		const factory = async (): Promise<Storage> => {
+			const real = await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
+			return new Proxy(real, {
+				get(target, prop, receiver) {
+					const value = Reflect.get(target, prop, receiver);
+					if (typeof value !== "function") return value;
+					if (prop !== "commit") return value.bind(target);
+					return (writes: unknown) => {
+						if (JSON.stringify(writes).includes("\\u0000"))
+							return Promise.reject(new Error("unsupported Unicode escape sequence"));
+						return (value as (...args: unknown[]) => unknown).apply(target, [writes]);
+					};
+				},
+			});
+		};
+		return { factory };
 	};
 
 	it("reconciles and re-arms the watches when #supervise reopens the Harness", async () => {
@@ -340,6 +367,67 @@ describe("startup reconciliation", () => {
 				10_000,
 			);
 			expect(await localRow(session.id)).toMatchObject({ state: "idle", waiting_kind: null });
+		} finally {
+			await first.close();
+		}
+	});
+
+	/**
+	 * A tool call in flight when the Harness fails: its durable task is `running` at that moment. The reopen
+	 * must resume it, or the run never ends and the session shows `running` until someone stops it.
+	 */
+	it("resumes a tool call that was running when the Harness failed", async () => {
+		const storage = failingStorage();
+		const first = await AgentRuntime.open({
+			callRunner: new CallRunner(),
+			db: localDb,
+			storage: storage.factory,
+			models,
+			cluster: localCluster,
+			taskGroups: localGroups,
+			audit: new Audit(localDb),
+		});
+		try {
+			const session = await first.createSession(localOwner, {
+				model: localModel(),
+				rulePreset: "yolo",
+				title: "tool in flight across a reopen",
+			});
+			let releaseChild!: () => void;
+			const childGate = new Promise<void>((resolve) => {
+				releaseChild = resolve;
+			});
+			faux.setResponses([
+				fauxAssistantMessage([fauxToolCall("subagent", { task: "child work" })], { stopReason: "toolUse" }),
+				async () => {
+					await childGate;
+					return fauxAssistantMessage([fauxText("child answer")]);
+				},
+				async () => {
+					await childGate;
+					return fauxAssistantMessage([fauxText("child answer after the reopen")]);
+				},
+				fauxAssistantMessage([fauxText("parent done")]),
+			]);
+			const submission = await first.submit(session.id, localOwner, "go", "reopen-tool-1");
+			// The subagent tool has started once its child session exists; it now waits on the child's answer.
+			await waitFor("the child session", async () =>
+				(await localDb.selectFrom("sessions").select("id").where("parent_session_id", "=", session.id).execute())
+					.length > 0
+					? true
+					: undefined,
+			);
+			// A commit fails while the tool call runs: the Harness fails and the supervisor reopens it.
+			storage.failOnce();
+			releaseChild();
+			await waitFor("the Harness reopened", () => (first.reopened === 1 ? true : undefined), 10_000);
+			// A task the recovery did not resume leaves the session `running` for ever.
+			await waitFor(
+				"idle after the reopen",
+				async () => ((await localRow(session.id)).state === "idle" ? true : undefined),
+				10_000,
+			);
+			expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
 		} finally {
 			await first.close();
 		}
@@ -611,6 +699,132 @@ describe("startup reconciliation", () => {
 			}
 		} finally {
 			log.restore();
+		}
+	});
+
+	/**
+	 * The same with a write that keeps failing: the Harness reopens over and over, as it did when a poisoned
+	 * commit was replayed. A tool call cut off by each failure must still be resumed once the commits succeed.
+	 */
+	it("resumes a tool call after the Harness failed more than once", async () => {
+		const storage = failingStorage();
+		const first = await AgentRuntime.open({
+			callRunner: new CallRunner(),
+			db: localDb,
+			storage: storage.factory,
+			models,
+			cluster: localCluster,
+			taskGroups: localGroups,
+			audit: new Audit(localDb),
+		});
+		try {
+			const session = await first.createSession(localOwner, {
+				model: localModel(),
+				rulePreset: "yolo",
+				title: "tool in flight across repeated failures",
+			});
+			let releaseChild!: () => void;
+			const childGate = new Promise<void>((resolve) => {
+				releaseChild = resolve;
+			});
+			faux.setResponses([
+				fauxAssistantMessage([fauxToolCall("subagent", { task: "child work" })], { stopReason: "toolUse" }),
+				async () => {
+					await childGate;
+					return fauxAssistantMessage([fauxText("child answer")]);
+				},
+				...Array.from({ length: 12 }, (_, index) => fauxAssistantMessage([fauxText(`answer ${index}`)])),
+			]);
+			const submission = await first.submit(session.id, localOwner, "go", "reopen-tool-2");
+			await waitFor("the child session", async () =>
+				(await localDb.selectFrom("sessions").select("id").where("parent_session_id", "=", session.id).execute())
+					.length > 0
+					? true
+					: undefined,
+			);
+			// Five failing commits in a row, as a poisoned write replayed by every reopen.
+			storage.failTimes(5);
+			releaseChild();
+			// Each failed attempt doubles the supervisor's backoff, so five of them take about 15 s to retry.
+			await waitFor("a reopen", () => (first.reopened > 0 ? true : undefined), 30_000);
+			await waitFor(
+				"idle after the reopens",
+				async () => ((await localRow(session.id)).state === "idle" ? true : undefined),
+				20_000,
+			);
+			expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
+		} finally {
+			await first.close();
+		}
+	});
+
+	/**
+	 * The incident: a message carries a NUL byte, so every commit of it fails (PostgreSQL cannot hold the
+	 * byte) and the Harness fails on each reopen until the task that keeps writing it is parked. A parked task
+	 * never runs again, so its run is stopped rather than left looking busy for ever.
+	 */
+	it("stops the run whose task the Harness parked", async () => {
+		const storage = poisonedStorage();
+		const first = await AgentRuntime.open({
+			callRunner: new CallRunner(),
+			db: localDb,
+			storage: storage.factory,
+			models,
+			cluster: localCluster,
+			taskGroups: localGroups,
+			audit: new Audit(localDb),
+		});
+		try {
+			const session = await first.createSession(localOwner, {
+				model: localModel(),
+				rulePreset: "yolo",
+				title: "a poisoned child answer",
+			});
+			let releaseChild!: () => void;
+			const childGate = new Promise<void>((resolve) => {
+				releaseChild = resolve;
+			});
+			// Every child answer carries the NUL, so each attempt to commit it fails the whole Harness. Once the
+			// queue runs out the child fails cleanly, which lets the run finish.
+			faux.setResponses([
+				fauxAssistantMessage([fauxToolCall("subagent", { task: "child work" })], { stopReason: "toolUse" }),
+				async () => {
+					await childGate;
+					return fauxAssistantMessage([fauxText("poison\u0000")]);
+				},
+				...Array.from({ length: 8 }, () => fauxAssistantMessage([fauxText("poison\u0000")])),
+				fauxAssistantMessage([fauxText("parent done")]),
+			]);
+			const seen: SessionEvent[] = [];
+			const stopWatch = await first.watch(session.id, (events) => {
+				seen.push(...events);
+			});
+			try {
+				const submission = await first.submit(session.id, localOwner, "go", "reopen-tool-3");
+				await waitFor("the child session", async () =>
+					(await localDb.selectFrom("sessions").select("id").where("parent_session_id", "=", session.id).execute())
+						.length > 0
+						? true
+						: undefined,
+				);
+				releaseChild();
+				await waitFor("a reopen", () => (first.reopened > 0 ? true : undefined), 30_000);
+				await waitFor(
+					"idle after the reopens",
+					async () => ((await localRow(session.id)).state === "idle" ? true : undefined),
+					30_000,
+				);
+				// The stopped run leaves its message unanswered; the session is idle and can take a new one.
+				expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "unanswered" });
+				// The banner the WebUI shows for `task_failed` explains the stop instead of the run just going idle.
+				expect(
+					seen.some((event) => event.type === "task_failed" && event.message.includes("Send the message again")),
+				).toBe(true);
+			} finally {
+				stopWatch();
+			}
+		} finally {
+			await first.close();
 		}
 	});
 });
